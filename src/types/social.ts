@@ -53,6 +53,7 @@ export interface Community {
   category: string;
   visibility: CommunityVisibility;
   postingPolicy: PostingPolicy;
+  hideMembers: boolean;
   /**
    * Invite code. Private communities are joined by code or link, then approved by an admin.
    * Only the owner and admins receive it; everyone else sees "".

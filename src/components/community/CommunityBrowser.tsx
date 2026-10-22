@@ -134,8 +134,7 @@ if (!hydrated || !me) {
 
   return (
     <>
-      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <Tabs
+        <div className="mb-8 flex flex-col gap-5 rounded-2xl border border-cova-line bg-white p-5 shadow-sm sm:p-6 lg:flex-row lg:items-center lg:justify-between">        <Tabs
           tabs={TABS.map((key) => tabLabels[key])}
           value={tabLabels[tab]}
           onChange={(next) => setTab(TABS.find((key) => tabLabels[key] === next) ?? "discover")}
@@ -159,7 +158,7 @@ if (!hydrated || !me) {
         <PeopleHub me={me} />
       ) : (
         <>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-cova-line bg-white p-4 shadow-sm sm:flex-row sm:items-end sm:justify-between">
             <SearchInput
               label={t("community.searchLabel")}
               placeholder={t("community.searchLabel")}

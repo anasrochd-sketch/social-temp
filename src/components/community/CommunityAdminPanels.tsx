@@ -309,6 +309,7 @@ export function SettingsTab({ community, meId }: { community: Community; meId: s
       category,
       visibility,
       postingPolicy,
+      hideMembers: community.hideMembers,
     });
     setError(result.ok ? "" : result.error);
     if (result.ok) toast.push("Settings saved");

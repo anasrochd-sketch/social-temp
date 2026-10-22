@@ -91,13 +91,14 @@ export function CreateCommunityModal({ open, onClose, meId }: CreateCommunityMod
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const result = await socialActions.createCommunity(meId, {
-      name,
-      description,
-      category,
-      visibility,
-      postingPolicy,
-    });
+const result = await socialActions.createCommunity(meId, {
+  name,
+  description,
+  category,
+  visibility,
+  postingPolicy,
+  hideMembers: false,
+});
     if (!result.ok) {
       setError(result.error);
       return;
