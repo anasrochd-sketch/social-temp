@@ -1,12 +1,10 @@
 import { challenges } from "@/data/challenges";
 import { currentUser, students } from "@/data/students";
-import { assignments } from "@/data/assignments";
 import type { DemoState } from "@/lib/demo-store";
-import type { Assignment, AssignmentStatus, Course } from "@/types";
+import type { Course } from "@/types";
 
 export const XP_PER_LEVEL = 500;
 const XP_PER_LESSON = 15;
-const XP_PER_SUBMISSION = 25;
 const XP_PER_VOICE_MINUTE = 1;
 const XP_PER_HOSTED_SPACE = 20;
 const XP_PER_GROUP_MESSAGE = 2;
@@ -36,15 +34,10 @@ export function computeXp(state: DemoState): number {
     .filter((c) => state.completedChallenges.includes(c.id))
     .reduce((sum, c) => sum + c.points, 0);
   const lessonXp = state.completedLessons.length * XP_PER_LESSON;
-  const submissionXp =
-    assignments.filter(
-      (a) => state.assignments[a.id]?.status === "submitted" && a.status !== "submitted",
-    ).length * XP_PER_SUBMISSION;
   return (
     currentUser.baseXp +
     challengeXp +
     lessonXp +
-    submissionXp +
     state.voiceMinutes * XP_PER_VOICE_MINUTE +
     state.hostedSpaces * XP_PER_HOSTED_SPACE +
     state.groupMessages * XP_PER_GROUP_MESSAGE
@@ -84,6 +77,3 @@ export function courseProgress(
   return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
 }
 
-export function effectiveStatus(a: Assignment, state: DemoState): AssignmentStatus {
-  return state.assignments[a.id]?.status ?? a.status;
-}

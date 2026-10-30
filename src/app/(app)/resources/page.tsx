@@ -1,15 +1,20 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ResourcesBrowser } from "@/components/learning/ResourcesBrowser";
+import { getT } from "@/i18n/server";
 
-export const metadata: Metadata = { title: "Resources" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("resources.title") };
+}
 
-export default function ResourcesPage() {
+export default async function ResourcesPage() {
+  const t = await getT();
   return (
     <>
       <PageHeader
-        title="Resources"
-        description="Guides, cheat sheets and tools shared by the community."
+        title={t("resources.title")}
+        description={t("resources.description")}
       />
       <ResourcesBrowser />
     </>

@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { getSupabase } from "@/lib/supabase/client";
+import { useT } from "@/i18n/client";
 
 type Community = {
   id: string;
@@ -13,7 +15,9 @@ type Community = {
   category: string | null;
 };
 
-export function SuggestedGroups({ joined: _joined }: { joined: string[] }) {
+export function SuggestedGroups() {
+  const t = useT();
+  const router = useRouter();
   const [suggestions, setSuggestions] = useState<Community[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -65,7 +69,7 @@ export function SuggestedGroups({ joined: _joined }: { joined: string[] }) {
         console.error("Erreur de chargement des groupes :", err);
 
         if (active) {
-          setError("Could not load groups. Please try again later.");
+          setError(t("dashboard.groupsError"));
         }
       } finally {
         if (active) setLoading(false);
@@ -77,32 +81,32 @@ export function SuggestedGroups({ joined: _joined }: { joined: string[] }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   return (
     <Card>
       <CardHeader
-        title="Groups to join"
+        title={t("dashboard.groupsToJoin")}
         action={
           <Link
             href="/groups"
             className="text-sm font-medium underline-offset-2 hover:underline"
           >
-            Browse groups
+            {t("dashboard.browseGroups")}
           </Link>
         }
       />
 
       <CardBody>
         {loading ? (
-          <p className="text-sm text-cova-mute">Loading groups...</p>
+          <p className="text-sm text-cova-mute">{t("dashboard.loadingGroups")}</p>
         ) : error ? (
           <p role="alert" className="text-sm text-red-600">
             {error}
           </p>
         ) : suggestions.length === 0 ? (
           <p className="text-sm text-cova-mute">
-            No public groups available to discover right now.
+            {t("dashboard.noGroups")}
           </p>
         ) : (
           <ul className="space-y-4">
@@ -120,7 +124,7 @@ export function SuggestedGroups({ joined: _joined }: { joined: string[] }) {
                   </Link>
 
                   <p className="truncate text-xs text-cova-mute">
-                    {group.category || "General"}
+                    {group.category || t("dashboard.general")}
                   </p>
                 </div>
 
@@ -128,10 +132,10 @@ export function SuggestedGroups({ joined: _joined }: { joined: string[] }) {
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    window.location.href = `/groups/${group.id}`;
+                    router.push(`/groups/${group.id}`);
                   }}
                 >
-                  View
+                  {t("dashboard.view")}
                 </Button>
               </li>
             ))}

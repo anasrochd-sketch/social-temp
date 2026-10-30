@@ -1,15 +1,20 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AssignmentsBoard } from "@/components/learning/AssignmentsBoard";
+import { getT } from "@/i18n/server";
 
-export const metadata: Metadata = { title: "Assignments" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("assignments.title") };
+}
 
-export default function AssignmentsPage() {
+export default async function AssignmentsPage() {
+  const t = await getT();
   return (
     <>
       <PageHeader
-        title="Assignments"
-        description="Track what's due, submit your work and review grades."
+        title={t("assignments.title")}
+        description={t("assignments.description")}
       />
       <AssignmentsBoard />
     </>

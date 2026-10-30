@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Circle,
   Code2,
+  Copy,
   PlayCircle,
   Plus,
   X,
@@ -19,11 +20,12 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useToast } from "@/components/ui/Toast";
-import { assignments } from "@/data/assignments";
 import { courseProgress } from "@/lib/progress";
 import { getSupabase } from "@/lib/supabase/client";
+import { useT } from "@/i18n/client";
 import { cn, dueLabel } from "@/lib/utils";
 import type { Course, Lesson, LessonType } from "@/types";
+import { CourseResources } from "@/components/learning/CourseResources";
 
 const lessonIcon = {
   video: PlayCircle,
@@ -46,8 +48,26 @@ type TpSubmission = {
   reviewed_at: string | null;
 };
 
+type RelatedAssignment = { id: string; title: string; due_at: string; points: number };
+
 const submissionColumns =
   "id, course_id, lesson_id, student_id, answer, status, grade, feedback, submitted_at, reviewed_at";
+const RESOURCE_BUCKET = "shared-resources";
+const ASSIGNMENT_ATTACHMENT_BUCKET = "assignment-attachments";
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
+const SUPPORTED_UPLOAD_TYPES = new Set([
+  "application/pdf", "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain", "image/png", "image/jpeg",
+]);
+
+function localDateTimeValue(date: Date) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
@@ -55,17 +75,23 @@ function formatDate(value: string) {
 
 export function CourseDetail({ course }: { course: Course }) {
   const toast = useToast();
+  const t = useT();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [, setIsPrivateCourse] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [creatingInviteCode, setCreatingInviteCode] = useState(false);
   const [enrolled, setEnrolled] = useState(false);
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>(course.lessons);
   const [loading, setLoading] = useState(true);
+  const [now] = useState(() => Date.now());
   const [savingEnrollment, setSavingEnrollment] = useState(false);
   const [savingLesson, setSavingLesson] = useState<string | null>(null);
 
   const [submissions, setSubmissions] = useState<TpSubmission[]>([]);
+  const [relatedAssignments, setRelatedAssignments] = useState<RelatedAssignment[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, string>>({});
   const [feedbackDrafts, setFeedbackDrafts] = useState<
@@ -85,12 +111,14 @@ export function CourseDetail({ course }: { course: Course }) {
     "reading",
   );
   const [savingContent, setSavingContent] = useState(false);
+  const [contentFile, setContentFile] = useState<File | null>(null);
+  const [exerciseDueAt, setExerciseDueAt] = useState("");
+  const [resourceRefreshKey, setResourceRefreshKey] = useState(0);
 
   const [openLesson, setOpenLesson] = useState<string | null>(
     course.lessons[0]?.id ?? null,
   );
 
-  const related = assignments.filter((a) => a.courseId === course.id);
   const progress = courseProgress({ ...course, lessons }, completedLessons);
 
     useEffect(() => {
@@ -104,6 +132,7 @@ export function CourseDetail({ course }: { course: Course }) {
 
   const loadProgress = useCallback(async () => {
     try {
+      setInviteCode(null);
       const supabase = getSupabase();
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
@@ -113,6 +142,7 @@ export function CourseDetail({ course }: { course: Course }) {
       if (!authData.user) {
         setUserId(null);
         setIsOwner(false);
+        setInviteCode(null);
         setEnrolled(false);
         setCompletedLessons([]);
         setSubmissions([]);
@@ -130,7 +160,7 @@ export function CourseDetail({ course }: { course: Course }) {
       ] = await Promise.all([
         supabase
           .from("courses")
-          .select("created_by")
+          .select("created_by, published")
           .eq("id", course.id)
           .maybeSingle(),
 
@@ -159,7 +189,10 @@ export function CourseDetail({ course }: { course: Course }) {
       if (lessonsResult.error) throw lessonsResult.error;
       if (submissionsResult.error) throw submissionsResult.error;
 
-      setIsOwner(ownerResult.data?.created_by === currentUserId);
+      const owner = ownerResult.data?.created_by === currentUserId;
+      const privateCourse = ownerResult.data?.published === false;
+      setIsOwner(owner);
+      setIsPrivateCourse(privateCourse);
       setEnrolled(Boolean(enrollmentResult.data));
       setCompletedLessons(
         (lessonsResult.data ?? []).map((row) => row.lesson_id),
@@ -168,7 +201,37 @@ export function CourseDetail({ course }: { course: Course }) {
       const loadedSubmissions =
         (submissionsResult.data ?? []) as TpSubmission[];
 
+      if (owner) {
+        const { data: code, error: inviteCodeError } = await supabase.rpc(
+          "get_course_invite_code",
+          { p_course_id: course.id },
+        );
+        if (inviteCodeError) {
+          console.warn(
+            "Course invitation code is unavailable. Apply the course invite-code migration.",
+            inviteCodeError.message,
+          );
+          setInviteCode(null);
+        } else {
+          setInviteCode(code as string | null);
+        }
+      } else {
+        setInviteCode(null);
+      }
+
       setSubmissions(loadedSubmissions);
+
+      const { data: assignmentRows, error: assignmentError } = await supabase
+        .from("assignments")
+        .select("id,title,due_at,points")
+        .eq("course_id", course.id)
+        .order("due_at", { ascending: true });
+      if (assignmentError) {
+        console.warn("Unable to load course assignments:", assignmentError.message);
+        setRelatedAssignments([]);
+      } else {
+        setRelatedAssignments((assignmentRows ?? []) as RelatedAssignment[]);
+      }
 
       setGradeDrafts(
         Object.fromEntries(
@@ -207,6 +270,8 @@ export function CourseDetail({ course }: { course: Course }) {
     setSummary("");
     setContent("");
     setContentType("reading");
+    setContentFile(null);
+    setExerciseDueAt(localDateTimeValue(new Date(Date.now() + 24 * 60 * 60_000)));
   }
 
   function closeContentEditor() {
@@ -241,6 +306,19 @@ export function CourseDetail({ course }: { course: Course }) {
       return;
     }
 
+    if (contentFile && !SUPPORTED_UPLOAD_TYPES.has(contentFile.type)) {
+      toast.push("Choose a supported PDF, Office, text or image file.");
+      return;
+    }
+    if (contentFile && contentFile.size > MAX_UPLOAD_SIZE) {
+      toast.push("The attached file must be 20 MB or smaller.");
+      return;
+    }
+    if (editorKind === "exercise" && (!new Date(exerciseDueAt).getTime() || new Date(exerciseDueAt).getTime() <= Date.now())) {
+      toast.push("Choose a TP deadline in the future.");
+      return;
+    }
+
     setSavingContent(true);
 
     try {
@@ -260,8 +338,47 @@ export function CourseDetail({ course }: { course: Course }) {
         return;
       }
 
-      const type: LessonType =
-        editorKind === "exercise" ? "exercise" : contentType;
+      if (editorKind === "exercise") {
+        const assignmentId = crypto.randomUUID();
+        let attachmentPath: string | null = null;
+        const { error: assignmentError } = await supabase.from("assignments").insert({
+          id: assignmentId,
+          course_id: course.id,
+          created_by: userId,
+          title: cleanTitle,
+          description: `${cleanSummary ? `${cleanSummary}\n\n` : ""}${cleanContent}`,
+          due_at: new Date(exerciseDueAt).toISOString(),
+          points: 100,
+          kind: "coding",
+        });
+        if (assignmentError) throw assignmentError;
+        try {
+          if (contentFile) {
+            const safeName = contentFile.name.replace(/[^\p{L}\p{N}._-]+/gu, "-");
+            attachmentPath = `${userId}/${assignmentId}/${crypto.randomUUID()}-${safeName}`;
+            const { error } = await supabase.storage.from(ASSIGNMENT_ATTACHMENT_BUCKET)
+              .upload(attachmentPath, contentFile, { contentType: contentFile.type, upsert: false });
+            if (error) throw error;
+            const { error: updateError } = await supabase.from("assignments").update({
+              attachment_path: attachmentPath,
+              attachment_name: contentFile.name,
+            }).eq("id", assignmentId);
+            if (updateError) throw updateError;
+          }
+        } catch (error) {
+          if (attachmentPath) await supabase.storage.from(ASSIGNMENT_ATTACHMENT_BUCKET).remove([attachmentPath]);
+          await supabase.from("assignments").delete().eq("id", assignmentId);
+          throw error;
+        }
+        const newAssignment = { id: assignmentId, title: cleanTitle, due_at: new Date(exerciseDueAt).toISOString(), points: 100 };
+        setRelatedAssignments((current) => [...current, newAssignment].sort((a, b) => a.due_at.localeCompare(b.due_at)));
+        setEditorKind(null);
+        setTitle(""); setMinutes("10"); setSummary(""); setContent(""); setContentFile(null);
+        toast.push("TP added to assignments successfully.");
+        return;
+      }
+
+      const type: LessonType = contentType;
 
       const nextPosition =
         lessons.reduce(
@@ -288,6 +405,48 @@ export function CourseDetail({ course }: { course: Course }) {
 
       if (insertError) throw insertError;
 
+      // Lessons are also published as course resources. If no file was attached,
+      // publish the lesson text as a small text document so it remains downloadable.
+      const resourceFile = contentFile ?? new File(
+        [`${cleanTitle}\n\n${cleanSummary ? `${cleanSummary}\n\n` : ""}${cleanContent}`],
+        `${cleanTitle.replace(/[^\p{L}\p{N}._-]+/gu, "-")}.txt`,
+        { type: "text/plain" },
+      );
+      let resourcePath: string | null = null;
+      let resourceId: string | null = null;
+      try {
+        const safeName = resourceFile.name.replace(/[^\p{L}\p{N}._-]+/gu, "-");
+        resourcePath = `${userId}/${crypto.randomUUID()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage.from(RESOURCE_BUCKET)
+          .upload(resourcePath, resourceFile, { contentType: resourceFile.type || "text/plain", upsert: false });
+        if (uploadError) throw uploadError;
+        const { data: resource, error: resourceError } = await supabase.from("shared_resources").insert({
+          title: cleanTitle,
+          type: contentType === "video" ? "Video" : "Article",
+          description: cleanSummary || cleanContent.slice(0, 1000),
+          category: "Course lesson",
+          minutes: parsedMinutes,
+          file_name: contentFile?.name ?? resourceFile.name,
+          mime_type: resourceFile.type || "text/plain",
+          file_size: resourceFile.size,
+          storage_path: resourcePath,
+          uploaded_by: userId,
+        }).select("id").single();
+        if (resourceError) throw resourceError;
+        resourceId = resource.id as string;
+        const { error: linkError } = await supabase.from("course_resources").insert({
+          course_id: course.id,
+          resource_id: resourceId,
+          added_by: userId,
+        });
+        if (linkError) throw linkError;
+      } catch (error) {
+        if (resourceId) await supabase.from("shared_resources").delete().eq("id", resourceId);
+        if (resourcePath) await supabase.storage.from(RESOURCE_BUCKET).remove([resourcePath]);
+        await supabase.from("course_lessons").delete().eq("id", insertedLesson.id);
+        throw error;
+      }
+
       const newLesson: Lesson = {
         id: insertedLesson.id,
         title: insertedLesson.title,
@@ -304,12 +463,10 @@ export function CourseDetail({ course }: { course: Course }) {
       setMinutes("10");
       setSummary("");
       setContent("");
+      setContentFile(null);
+      setResourceRefreshKey((key) => key + 1);
 
-      toast.push(
-        editorKind === "exercise"
-          ? "Exercise added successfully."
-          : "Lesson added successfully.",
-      );
+      toast.push("Lesson added and published in resources.");
     } catch (error) {
       console.error("Unable to add course content:", error);
       toast.push("Could not add content. Check your connection and try again.");
@@ -553,6 +710,45 @@ export function CourseDetail({ course }: { course: Course }) {
     }
   }
 
+  async function copyInviteCode() {
+    if (!inviteCode) return;
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      toast.push(t("courses.codeCopied"));
+    } catch {
+      toast.push(t("courses.codeCopyFailed"));
+    }
+  }
+
+  async function createInviteCode() {
+    if (!isOwner || creatingInviteCode) return;
+    setCreatingInviteCode(true);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc("create_course_invite_code", {
+        p_course_id: course.id,
+      });
+      if (error) throw error;
+      if (!data) throw new Error("The invitation-code function returned no code.");
+
+      const code = String(data);
+      setInviteCode(code);
+
+      const { error: saveError } = await supabase.rpc(
+        "save_course_invite_code",
+        { p_course_id: course.id, p_code: code },
+      );
+      toast.push(
+        saveError ? t("courses.codeGeneratedNotSaved") : t("courses.codeGenerated"),
+      );
+    } catch (error) {
+      console.error("Could not generate course invitation code:", error);
+      toast.push(t("courses.codeGenerateFailed"));
+    } finally {
+      setCreatingInviteCode(false);
+    }
+  }
+
   return (
     <>
       <Link
@@ -582,6 +778,38 @@ export function CourseDetail({ course }: { course: Course }) {
               Taught by {course.instructor} ·{" "}
               {course.learners.toLocaleString("en-US")} learners
             </p>
+
+            {isOwner && inviteCode && (
+              <div className="mt-4 rounded-lg border border-cova-line p-4">
+                <p className="text-sm font-semibold">{t("courses.yourInvitationCode")}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <code dir="ltr" className="rounded bg-cova-pale px-3 py-2 font-mono text-lg tracking-widest">
+                    {inviteCode}
+                  </code>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void copyInviteCode()}>
+                    <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
+                    {t("courses.copyCode")}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-cova-mute">{t("courses.shareCode")}</p>
+              </div>
+            )}
+
+            {isOwner && !inviteCode && (
+              <div className="mt-4 rounded-lg border border-cova-line p-4">
+                <p className="text-sm text-cova-mute">{t("courses.noInvitationCode")}</p>
+                <Button
+                  type="button"
+                  className="mt-3"
+                  variant="secondary"
+                  size="sm"
+                  disabled={creatingInviteCode}
+                  onClick={() => void createInviteCode()}
+                >
+                  {creatingInviteCode ? t("courses.generatingCode") : t("courses.generateCode")}
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="w-full md:w-60">
@@ -614,6 +842,8 @@ export function CourseDetail({ course }: { course: Course }) {
           </div>
         </CardBody>
       </Card>
+
+      <CourseResources key={resourceRefreshKey} courseId={course.id} isOwner={isOwner} />
 
       {isOwner && (
         <Card className="mt-6">
@@ -689,6 +919,12 @@ export function CourseDetail({ course }: { course: Course }) {
                   />
                 </div>
 
+                {editorKind === "exercise" && <div>
+                  <label htmlFor="tp-deadline" className="mb-1.5 block text-sm font-medium">Deadline</label>
+                  <input id="tp-deadline" type="datetime-local" value={exerciseDueAt} min={localDateTimeValue(new Date(now + 60_000))} onChange={(event) => setExerciseDueAt(event.target.value)} required className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft" />
+                  <p className="mt-1 text-xs text-cova-mute">Score starts at 100. Late submissions receive a score reduced proportionally to the time allowed.</p>
+                </div>}
+
                 {editorKind === "lesson" && (
                   <div>
                     <label
@@ -713,7 +949,7 @@ export function CourseDetail({ course }: { course: Course }) {
                   </div>
                 )}
 
-                <div>
+                {editorKind === "lesson" && <div>
                   <label
                     htmlFor="content-minutes"
                     className="mb-1.5 block text-sm font-medium"
@@ -731,6 +967,13 @@ export function CourseDetail({ course }: { course: Course }) {
                     required
                     className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
                   />
+                </div>}
+
+                <div>
+                  <label htmlFor="content-document" className="mb-1.5 block text-sm font-medium">Attach a document (optional)</label>
+                  <input id="content-document" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.png,.jpg,.jpeg" onChange={(event) => setContentFile(event.target.files?.[0] ?? null)} disabled={savingContent} className="block w-full rounded-lg border border-cova-line bg-white p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-cova-pale file:px-3 file:py-1.5" />
+                  <p className="mt-1 text-xs text-cova-mute">PDF, Office, text or image · up to 20 MB{editorKind === "lesson" ? ". A text resource is generated automatically when no file is attached." : ". Students can download it from Assignments."}</p>
+                  {contentFile && <p className="mt-1 text-xs text-cova-mute">{contentFile.name}</p>}
                 </div>
 
                 <div>
@@ -1190,17 +1433,17 @@ export function CourseDetail({ course }: { course: Course }) {
 
           <Card>
             <CardBody>
-              {related.length === 0 ? (
+              {relatedAssignments.length === 0 ? (
                 <p className="text-sm text-cova-mute">
                   No assignments for this course yet.
                 </p>
               ) : (
                 <ul className="space-y-3">
-                  {related.map((a) => (
+                  {relatedAssignments.map((a) => (
                     <li key={a.id}>
-                      <p className="text-sm font-medium">{a.title}</p>
+                      <Link href={`/assignments/${a.id}`} className="text-sm font-medium hover:underline">{a.title}</Link>
                       <p className="text-xs text-cova-mute">
-                        {dueLabel(a.due)} · {a.points} pts
+                        {dueLabel(a.due_at)} · {a.points} pts
                       </p>
                     </li>
                   ))}

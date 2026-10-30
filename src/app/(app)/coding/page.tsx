@@ -1,17 +1,15 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/ui/PageHeader";
 import { CodingLab } from "@/components/coding/CodingLab";
+import { getT } from "@/i18n/server";
 
-export const metadata: Metadata = { title: "Coding Lab" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("nav.coding") };
+}
 
-export default function CodingPage() {
+export default async function CodingPage({ searchParams }: { searchParams: Promise<{ assignmentId?: string; assignmentTitle?: string }> }) {
+  const params = await searchParams;
   return (
-    <>
-      <PageHeader
-        title="Coding Lab"
-        description="Practise short exercises in an editor-style workspace."
-      />
-      <CodingLab />
-    </>
+    <CodingLab assignmentId={params.assignmentId} assignmentTitle={params.assignmentTitle} />
   );
 }

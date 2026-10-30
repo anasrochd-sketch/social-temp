@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { buttonStyles } from "@/components/ui/Button";
 import { getSupabase } from "@/lib/supabase/client";
+import { useT } from "@/i18n/client";
 
 type DashboardCourse = {
   id: string;
@@ -27,6 +28,7 @@ export function ContinueLearning({
   enrolled: string[];
   completedLessons: string[];
 }) {
+  const t = useT();
   const [activeCourses, setActiveCourses] = useState<DashboardCourse[]>([]);
   const [lessons, setLessons] = useState<DashboardLesson[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,13 +91,13 @@ export function ContinueLearning({
   return (
     <Card>
       <CardHeader
-        title="Continue learning"
+        title={t("dashboard.continueLearning")}
         action={
           <Link
             href="/courses"
             className="text-sm font-medium underline-offset-2 hover:underline"
           >
-            All courses
+            {t("dashboard.allCourses")}
           </Link>
         }
       />
@@ -103,16 +105,16 @@ export function ContinueLearning({
       <CardBody>
         {loading ? (
           <p className="text-sm text-cova-mute">
-            Loading your courses...
+            {t("dashboard.loadingCourses")}
           </p>
         ) : activeCourses.length === 0 ? (
           <EmptyState
             icon={BookOpen}
-            title="No courses yet"
-            description="Enrol in a course to track your lessons and progress here."
+            title={t("dashboard.noCourses")}
+            description={t("dashboard.noCoursesDescription")}
             action={
               <Link href="/courses" className={buttonStyles()}>
-                Browse courses
+                {t("dashboard.browseCourses")}
               </Link>
             }
           />
@@ -142,7 +144,7 @@ export function ContinueLearning({
                     </Link>
 
                     <span className="shrink-0 text-xs text-cova-mute">
-                      {done} of {total} lessons
+                      {t("dashboard.lessonsCount", { done, total })}
                     </span>
                   </div>
 

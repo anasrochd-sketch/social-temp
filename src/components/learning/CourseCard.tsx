@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { courseProgress } from "@/lib/progress";
 import type { Course } from "@/types";
+import { useI18n, useT } from "@/i18n/client";
 
 interface CourseCardProps {
   course: Course;
@@ -15,13 +16,20 @@ interface CourseCardProps {
 }
 
 export function CourseCard({ course, enrolled, completedLessons }: CourseCardProps) {
+  const t = useT();
+  const { formatTag } = useI18n();
   const minutes = course.lessons.reduce((sum, l) => sum + l.minutes, 0);
   const progress = courseProgress(course, completedLessons);
+  const level = course.level === "Beginner"
+    ? t("courses.level.beginner")
+    : course.level === "Intermediate"
+      ? t("courses.level.intermediate")
+      : t("courses.level.advanced");
 
   return (
     <Card className="flex flex-col p-5">
       <div className="flex items-center justify-between gap-2">
-        <Badge tone="soft">{course.level}</Badge>
+        <Badge tone="soft">{level}</Badge>
         <span className="text-xs text-cova-mute">{course.category}</span>
       </div>
       <Link href={`/courses/${course.id}`} className="mt-3 font-semibold hover:underline">
@@ -38,14 +46,14 @@ export function CourseCard({ course, enrolled, completedLessons }: CourseCardPro
       </div>
       {enrolled ? (
         <div className="mt-4">
-          <ProgressBar value={progress.pct} label={`${course.title} progress`} />
+          <ProgressBar value={progress.pct} label={t("courses.progressLabel", { title: course.title })} />
           <p className="mt-1.5 text-xs text-cova-mute">
-            {progress.done} of {progress.total} lessons done
+            {t("courses.progressSummary", { done: progress.done, total: progress.total })}
           </p>
         </div>
       ) : (
         <p className="mt-4 text-xs text-cova-mute">
-          {course.learners.toLocaleString("en-US")} learners
+          {t("courses.learners", { count: course.learners.toLocaleString(formatTag) })}
         </p>
       )}
     </Card>

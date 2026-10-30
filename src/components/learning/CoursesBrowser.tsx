@@ -9,12 +9,13 @@ import { SelectFilter } from "@/components/ui/FormField";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { Tabs } from "@/components/ui/Tabs";
 import { CourseCard } from "@/components/learning/CourseCard";
-import { matchesQuery, pluralize } from "@/lib/utils";
+import { matchesQuery } from "@/lib/utils";
 import { getSupabase } from "@/lib/supabase/client";
 import type { Course, LessonType } from "@/types";
+import { useT } from "@/i18n/client";
 
-const TABS = ["All courses", "My courses", "Created Courses"] as const;
-const ALL = "All levels";
+const TABS = ["all", "mine", "created"] as const;
+const ALL = "all";
 const levels = [ALL, "Beginner", "Intermediate", "Advanced"];
 
 type CourseRow = {
@@ -39,15 +40,22 @@ type LessonRow = {
 };
 
 export function CoursesBrowser() {
+  const t = useT();
   const [courses, setCourses] = useState<Course[]>([]);
   const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
   const [ownedCourses, setOwnedCourses] = useState<string[]>([]);
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
-  const [tab, setTab] = useState<(typeof TABS)[number]>("All courses");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("all");
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState(ALL);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const levelKey = (value: string) => {
+    if (value === "Beginner") return t("courses.level.beginner");
+    if (value === "Intermediate") return t("courses.level.intermediate");
+    if (value === "Advanced") return t("courses.level.advanced");
+    return t("courses.level.all");
+  };
 
   useEffect(() => {
     let active = true;
@@ -149,7 +157,7 @@ export function CoursesBrowser() {
 
         if (active) {
           setErrorMessage(
-            "Impossible de charger les cours. Vérifie ta connexion puis réessaie.",
+            t("courses.loadError"),
           );
         }
       } finally {
@@ -162,7 +170,7 @@ export function CoursesBrowser() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   const myCourseIds = useMemo(
     () => Array.from(new Set([...enrolledCourses, ...ownedCourses])),
@@ -173,9 +181,9 @@ export function CoursesBrowser() {
     () =>
       courses.filter((course) => {
         const belongsToTab =
-          tab === "All courses"
+          tab === "all"
             ? true
-            : tab === "My courses"
+            : tab === "mine"
               ? myCourseIds.includes(course.id)
               : ownedCourses.includes(course.id);
 
@@ -198,7 +206,7 @@ export function CoursesBrowser() {
   if (loading) {
     return (
       <div className="rounded-xl border border-cova-line p-6">
-        <p className="text-sm text-cova-mute">Loading courses...</p>
+        <p className="text-sm text-cova-mute">{t("courses.loading")}</p>
       </div>
     );
   }
@@ -207,14 +215,14 @@ export function CoursesBrowser() {
     return (
       <EmptyState
         icon={SearchX}
-        title="Courses unavailable"
+        title={t("courses.unavailable")}
         description={errorMessage}
         action={
           <Button
             variant="secondary"
             onClick={() => window.location.reload()}
           >
-            Try again
+            {t("common.tryAgain")}
           </Button>
         }
       />
@@ -228,33 +236,34 @@ export function CoursesBrowser() {
           tabs={TABS}
           value={tab}
           onChange={setTab}
-          label="Courses view"
+          label={t("courses.view")}
           counts={{
-            "My courses": myCourseIds.length,
-            "Created Courses": ownedCourses.length,
+            mine: myCourseIds.length,
+            created: ownedCourses.length,
           }}
+          labels={{ all: t("courses.tab.all"), mine: t("courses.tab.mine"), created: t("courses.tab.created") }}
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <SearchInput
-            label="Search courses"
-            placeholder="Search courses, topics or instructors"
+            label={t("courses.search")}
+            placeholder={t("courses.searchPlaceholder")}
             value={query}
             onChange={setQuery}
             className="sm:w-72"
           />
 
           <SelectFilter
-            label="Level"
-            options={levels}
-            value={level}
-            onChange={(event) => setLevel(event.target.value)}
+            label={t("courses.level")}
+            options={levels.map(levelKey)}
+            value={levelKey(level)}
+            onChange={(event) => setLevel(levels.find((option) => levelKey(option) === event.target.value) ?? ALL)}
           />
         </div>
       </div>
 
       <p className="mb-4 text-sm text-cova-mute" aria-live="polite">
-        {pluralize(results.length, "course")} found
+        {t("courses.count", { count: results.length })}
       </p>
 
       {results.length === 0 ? (
@@ -262,21 +271,21 @@ export function CoursesBrowser() {
           icon={courses.length === 0 ? BookOpen : SearchX}
           title={
             courses.length === 0
-              ? "No courses available yet"
-              : tab === "My courses"
-                ? "No courses in your learning space yet"
-                : tab === "Created Courses"
-                  ? "You haven't created any courses yet"
-                  : "No courses match your search"
+              ? t("courses.empty.noneTitle")
+              : tab === "mine"
+                ? t("courses.empty.mineTitle")
+                : tab === "created"
+                  ? t("courses.empty.createdTitle")
+                  : t("courses.empty.searchTitle")
           }
           description={
             courses.length === 0
-              ? "Public courses and private courses shared with you will appear here."
-              : tab === "My courses"
-                ? "Courses you create or join will appear here."
-                : tab === "Created Courses"
-                  ? "Courses you create will appear here."
-                  : "Try different keywords or choose another level."
+              ? t("courses.empty.noneDescription")
+              : tab === "mine"
+                ? t("courses.empty.mineDescription")
+                : tab === "created"
+                  ? t("courses.empty.createdDescription")
+                  : t("courses.empty.searchDescription")
           }
           action={
             <Button
@@ -284,10 +293,10 @@ export function CoursesBrowser() {
               onClick={() => {
                 setQuery("");
                 setLevel(ALL);
-                setTab("All courses");
+                setTab("all");
               }}
             >
-              Show all courses
+              {t("courses.showAll")}
             </Button>
           }
         />

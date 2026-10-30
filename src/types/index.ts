@@ -120,17 +120,6 @@ export interface AppNotification {
   href?: string;
 }
 
-export type ResourceType = "Article" | "Video" | "Cheatsheet" | "Tool" | "Book";
-
-export interface Resource {
-  id: string;
-  title: string;
-  type: ResourceType;
-  category: string;
-  description: string;
-  minutes: number;
-}
-
 export interface UserSettings {
   displayName: string;
   email: string;

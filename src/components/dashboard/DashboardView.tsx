@@ -13,6 +13,7 @@ import { SuggestedGroups } from "@/components/dashboard/SuggestedGroups";
 import { useDemoState } from "@/lib/demo-store";
 import { levelFor } from "@/lib/progress";
 import { getSupabase } from "@/lib/supabase/client";
+import { useI18n } from "@/i18n/client";
 
 type RealProfile = {
   id: string;
@@ -27,6 +28,7 @@ type LeaderboardEntry = {
 };
 
 export function DashboardView() {
+  const { t, formatTag } = useI18n();
   const state = useDemoState();
 
   const [profile, setProfile] = useState<RealProfile | null>(null);
@@ -218,13 +220,13 @@ export function DashboardView() {
     state.session?.name ||
     state.settings.displayName;
 
-  const firstName = displayName.split(" ")[0];
+  const firstName = displayName.split(" ")[0] ?? displayName;
 
   return (
     <>
       <PageHeader
-        title={`Welcome back, ${firstName}`}
-        description="Here's where you are this week."
+        title={t("dashboard.welcome", { name: firstName })}
+        description={t("dashboard.week")}
       />
 
       <Card className="mb-6">
@@ -235,22 +237,22 @@ export function DashboardView() {
 
           <div className="flex-1">
             <div className="flex items-baseline justify-between gap-3">
-              <p className="font-semibold">Level {level}</p>
+              <p className="font-semibold">{t("dashboard.level", { level })}</p>
               <p className="text-sm text-cova-mute">
-                {into} / {needed} XP to Level {level + 1}
+                {t("dashboard.xpToLevel", { into, needed, level: level + 1 })}
               </p>
             </div>
 
             <ProgressBar
               value={into}
               max={needed}
-              label="Progress to next level"
+              label={t("dashboard.progressNextLevel")}
               className="mt-2"
             />
 
             {!profileLoading && profile?.user_code && (
               <p className="mt-2 text-sm text-cova-mute">
-                Your COVA code: {profile.user_code}
+                {t("dashboard.covaCode", { code: profile.user_code })}
               </p>
             )}
           </div>
@@ -260,13 +262,13 @@ export function DashboardView() {
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={Flame}
-          label="Total XP"
-          value={xp.toLocaleString("en-US")}
+          label={t("dashboard.totalXp")}
+          value={xp.toLocaleString(formatTag)}
         />
 
         <StatCard
           icon={Trophy}
-          label="Leaderboard rank"
+          label={t("dashboard.leaderboardRank")}
           value={
             leaderboardLoading
               ? "..."
@@ -276,16 +278,16 @@ export function DashboardView() {
           }
           detail={
             leaderboardLoading
-              ? "Loading ranking..."
+              ? t("dashboard.loadingRanking")
               : leaderboardRank !== null
-                ? "Your real COVA ranking"
-                : "Ranking unavailable"
+                ? t("dashboard.realRanking")
+                : t("dashboard.rankingUnavailable")
           }
         />
 
         <StatCard
           icon={BookOpen}
-          label="Lessons completed"
+          label={t("dashboard.lessonsCompleted")}
           value={
             learningLoading ? "..." : String(completedLessons.length)
           }
@@ -293,7 +295,7 @@ export function DashboardView() {
 
         <StatCard
           icon={Award}
-          label="Challenges done"
+          label={t("dashboard.challengesDone")}
           value={String(state.completedChallenges.length)}
         />
       </div>
@@ -304,7 +306,7 @@ export function DashboardView() {
             <Card>
               <CardBody>
                 <p className="text-sm text-cova-mute">
-                  Loading your learning progress...
+                  {t("dashboard.loadingProgress")}
                 </p>
               </CardBody>
             </Card>
@@ -315,12 +317,12 @@ export function DashboardView() {
             />
           )}
 
-          <UpcomingAssignments state={state} />
+          <UpcomingAssignments />
         </div>
 
         <div className="space-y-6">
           <DailyChallengeCard completed={state.completedChallenges} />
-          <SuggestedGroups joined={state.joinedGroups} />
+          <SuggestedGroups />
         </div>
       </div>
     </>

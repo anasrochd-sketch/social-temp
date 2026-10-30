@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { BookOpen, SearchX } from "lucide-react";
 import { CourseDetail } from "@/components/learning/CourseDetail";
 import { Button } from "@/components/ui/Button";
@@ -33,6 +33,7 @@ type LessonRow = {
 
 export default function CoursePage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params.id;
 
   const [course, setCourse] = useState<Course | null>(null);
@@ -157,7 +158,7 @@ export default function CoursePage() {
           <Button
             variant="secondary"
             onClick={() => {
-              window.location.href = "/courses";
+              router.push("/courses");
             }}
           >
             Retour aux cours

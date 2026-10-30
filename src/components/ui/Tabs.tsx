@@ -8,9 +8,10 @@ interface TabsProps<T extends string> {
   onChange: (value: T) => void;
   label: string;
   counts?: Partial<Record<T, number>>;
+  labels?: Partial<Record<T, string>>;
 }
 
-export function Tabs<T extends string>({ tabs, value, onChange, label, counts }: TabsProps<T>) {
+export function Tabs<T extends string>({ tabs, value, onChange, label, counts, labels }: TabsProps<T>) {
   return (
     <div
       role="tablist"
@@ -31,7 +32,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, counts }:
               active ? "bg-white text-cova-ink" : "text-cova-ink/75 hover:text-cova-ink",
             )}
           >
-            {tab}
+            {labels?.[tab] ?? tab}
             {counts?.[tab] !== undefined && (
               <span className="ml-1.5 text-xs text-cova-mute">{counts[tab]}</span>
             )}

@@ -6,6 +6,10 @@ import { Plus, Trash2, BookOpen, Copy, Loader2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
 import type { LessonType } from "@/types";
+import { useT } from "@/i18n/client";
+import { resourceTypeLabel } from "@/lib/resource-types";
+
+type ExistingResource = { id: string; title: string; type: string; category: string };
 
 type LessonDraft = {
   title: string;
@@ -24,6 +28,7 @@ const emptyLesson = (): LessonDraft => ({
 });
 
 export function CourseManager() {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -34,6 +39,22 @@ export function CourseManager() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [availableResources, setAvailableResources] = useState<ExistingResource[]>([]);
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+
+  async function loadResources() {
+    try {
+      const { data, error } = await getSupabase()
+        .from("shared_resources")
+        .select("id,title,type,category")
+        .order("title");
+      if (error) throw error;
+      setAvailableResources((data ?? []) as ExistingResource[]);
+    } catch (error) {
+      console.error("Unable to load resources for course creation:", error);
+      setAvailableResources([]);
+    }
+  }
 
   function updateLesson(index: number, changes: Partial<LessonDraft>) {
     setLessons((current) =>
@@ -49,12 +70,12 @@ export function CourseManager() {
     setInviteCode("");
 
     if (!title.trim()) {
-      setMessage("Please enter a course title.");
+      setMessage(t("courses.create.titleError"));
       return;
     }
 
     if (lessons.some((lesson) => !lesson.title.trim())) {
-      setMessage("Please give every lesson a title.");
+      setMessage(t("courses.create.lessonTitleError"));
       return;
     }
 
@@ -66,7 +87,7 @@ export function CourseManager() {
         await supabase.auth.getUser();
 
       if (authError) throw authError;
-      if (!auth.user) throw new Error("Please sign in first.");
+      if (!auth.user) throw new Error(t("courses.create.signInError"));
 
       const courseId = `course-${crypto.randomUUID()}`;
 
@@ -108,33 +129,60 @@ export function CourseManager() {
         throw lessonError;
       }
 
+      if (selectedResources.length > 0) {
+        const { error: resourceLinkError } = await supabase
+          .from("course_resources")
+          .insert(selectedResources.map((resourceId) => ({
+            course_id: courseId,
+            resource_id: resourceId,
+            added_by: auth.user.id,
+          })));
+        if (resourceLinkError) {
+          await supabase.from("courses").delete().eq("id", courseId);
+          throw resourceLinkError;
+        }
+      }
+
       if (visibility === "private") {
         const { data: code, error: inviteError } = await supabase.rpc(
-          "create_course_invite",
+          "create_course_invite_code",
           { p_course_id: courseId },
         );
 
         if (inviteError) {
           throw new Error(
-            "Course created, but the invitation code could not be generated. Please refresh and check your courses.",
+            t("courses.create.inviteFailure"),
           );
         }
 
         setInviteCode(String(code));
+
+        const { error: saveCodeError } = await supabase.rpc(
+          "save_course_invite_code",
+          { p_course_id: courseId, p_code: String(code) },
+        );
+        if (saveCodeError) throw new Error(t("courses.create.codeSaveError"));
       }
 
-      setMessage("Course created successfully.");
+      setMessage(t("courses.create.success"));
       setTitle("");
       setDescription("");
       setLevel("Beginner");
       setCategory("General");
       setLessons([emptyLesson()]);
+      setSelectedResources([]);
     } catch (error) {
       console.error("Course creation failed:", error);
+      const knownMessage = error instanceof Error ? error.message : "";
+      const translatedMessages = [
+        t("courses.create.signInError"),
+        t("courses.create.inviteFailure"),
+        t("courses.create.codeSaveError"),
+      ];
       setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not create the course. Please try again.",
+        translatedMessages.includes(knownMessage)
+          ? knownMessage
+          : t("courses.create.failure"),
       );
     } finally {
       setLoading(false);
@@ -146,10 +194,14 @@ export function CourseManager() {
       <div className="flex justify-end">
         <Button
           type="button"
-          onClick={() => setIsOpen((open) => !open)}
+          onClick={() => {
+            const opening = !isOpen;
+            setIsOpen(opening);
+            if (opening) void loadResources();
+          }}
         >
           <Plus className="mr-2 h-4 w-4" />
-          {isOpen ? "Close form" : "Create a course"}
+          {isOpen ? t("courses.close") : t("courses.create.button")}
         </Button>
       </div>
 
@@ -160,9 +212,9 @@ export function CourseManager() {
               <BookOpen className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">Create a course</h2>
+              <h2 className="text-lg font-semibold">{t("courses.create.title")}</h2>
               <p className="text-sm text-cova-mute">
-                Share what you know with the COVA community.
+                {t("courses.create.description")}
               </p>
             </div>
           </div>
@@ -170,30 +222,30 @@ export function CourseManager() {
           <form onSubmit={createCourse} className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium">
-                Course title
+                {t("courses.create.courseTitle")}
                 <input
                   required
                   maxLength={120}
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
-                  placeholder="e.g. Introduction to Python"
+                  placeholder={t("courses.create.titlePlaceholder")}
                 />
               </label>
 
               <label className="block text-sm font-medium">
-                Category
+                {t("courses.create.category")}
                 <input
                   value={category}
                   onChange={(event) => setCategory(event.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
-                  placeholder="Programming"
+                  placeholder={t("courses.create.categoryPlaceholder")}
                 />
               </label>
             </div>
 
             <label className="block text-sm font-medium">
-              Description
+              {t("courses.create.descriptionLabel")}
               <textarea
                 required
                 maxLength={2000}
@@ -201,40 +253,66 @@ export function CourseManager() {
                 onChange={(event) => setDescription(event.target.value)}
                 rows={3}
                 className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
-                placeholder="What will students learn?"
+                placeholder={t("courses.create.descriptionPlaceholder")}
               />
             </label>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-medium">
-                Level
+                {t("courses.level")}
                 <select
                   value={level}
                   onChange={(event) => setLevel(event.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
                 >
-                  <option value="Beginner">Beginner</option>
-                  <option value="Intermediate">Intermediate</option>
-                  <option value="Advanced">Advanced</option>
+                  <option value="Beginner">{t("courses.level.beginner")}</option>
+                  <option value="Intermediate">{t("courses.level.intermediate")}</option>
+                  <option value="Advanced">{t("courses.level.advanced")}</option>
                 </select>
               </label>
 
               <label className="block text-sm font-medium">
-                Access
+                {t("courses.create.access")}
                 <select
                   value={visibility}
                   onChange={(event) => setVisibility(event.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
                 >
-                  <option value="private">Private — invitation code</option>
-                  <option value="public">Public — visible in the catalogue</option>
+                  <option value="private">{t("courses.create.private")}</option>
+                  <option value="public">{t("courses.create.public")}</option>
                 </select>
               </label>
             </div>
 
             <div className="space-y-4">
+              <section className="space-y-2 rounded-lg border border-cova-line p-4">
+                <div>
+                  <h3 className="font-semibold">{t("courses.resources.title")}</h3>
+                  <p className="text-sm text-cova-mute">{t("courses.resources.createHint")}</p>
+                </div>
+                {availableResources.length === 0 ? (
+                  <p className="text-sm text-cova-mute">{t("courses.resources.noneAvailable")}</p>
+                ) : (
+                  <div className="max-h-48 space-y-2 overflow-y-auto">
+                    {availableResources.map((resource) => (
+                      <label key={resource.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedResources.includes(resource.id)}
+                          onChange={(event) => setSelectedResources((current) => event.target.checked
+                            ? [...current, resource.id]
+                            : current.filter((id) => id !== resource.id))}
+                        />
+                        <span>{resource.title}</span>
+                        <span className="text-xs text-cova-mute">{resource.category} · {t(resourceTypeLabel(resource.type))}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </section>
+
               <div className="flex items-center justify-between gap-3">
-                <h3 className="font-semibold">Lessons</h3>
+                <h3 className="font-semibold">{t("courses.lessons")}</h3>
                 <Button
                   type="button"
                   variant="secondary"
@@ -244,7 +322,7 @@ export function CourseManager() {
                   }
                 >
                   <Plus className="mr-1.5 h-4 w-4" />
-                  Add lesson
+                  {t("courses.create.addLesson")}
                 </Button>
               </div>
 
@@ -255,12 +333,12 @@ export function CourseManager() {
                 >
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-semibold">
-                      Lesson {index + 1}
+                      {t("courses.lessonNumber", { number: index + 1 })}
                     </h4>
                     {lessons.length > 1 && (
                       <button
                         type="button"
-                        aria-label={`Remove lesson ${index + 1}`}
+                        aria-label={t("courses.create.removeLesson", { number: index + 1 })}
                         onClick={() =>
                           setLessons((current) =>
                             current.filter((_, i) => i !== index),
@@ -274,7 +352,7 @@ export function CourseManager() {
                   </div>
 
                   <label className="block text-sm font-medium">
-                    Lesson title
+                    {t("courses.create.lessonTitle")}
                     <input
                       required
                       value={lesson.title}
@@ -282,7 +360,7 @@ export function CourseManager() {
                         updateLesson(index, { title: event.target.value })
                       }
                       className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
-                      placeholder="Lesson title"
+                      placeholder={t("courses.create.lessonTitle")}
                     />
                   </label>
 
@@ -298,14 +376,14 @@ export function CourseManager() {
                         }
                         className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
                       >
-                        <option value="reading">Reading</option>
-                        <option value="video">Video</option>
-                        <option value="exercise">Exercise</option>
+                        <option value="reading">{t("courses.lessonType.reading")}</option>
+                        <option value="video">{t("courses.lessonType.video")}</option>
+                        <option value="exercise">{t("courses.lessonType.exercise")}</option>
                       </select>
                     </label>
 
                     <label className="block text-sm font-medium">
-                      Duration (minutes)
+                      {t("courses.create.duration")}
                       <input
                         type="number"
                         min={1}
@@ -322,7 +400,7 @@ export function CourseManager() {
                   </div>
 
                   <label className="block text-sm font-medium">
-                    Summary
+                    {t("courses.create.summary")}
                     <textarea
                       value={lesson.summary}
                       onChange={(event) =>
@@ -330,7 +408,7 @@ export function CourseManager() {
                       }
                       rows={2}
                       className="mt-1.5 w-full rounded-lg border border-cova-line bg-transparent px-3 py-2"
-                      placeholder="A short overview of the lesson"
+                      placeholder={t("courses.create.summaryPlaceholder")}
                     />
                   </label>
                 </div>
@@ -341,10 +419,10 @@ export function CourseManager() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
+                    {t("courses.create.submitting")}
                 </>
               ) : (
-                "Create course"
+                t("courses.create.button")
               )}
             </Button>
           </form>
@@ -357,23 +435,27 @@ export function CourseManager() {
 
           {inviteCode && (
             <div className="mt-4 rounded-lg border border-cova-line p-4">
-              <p className="font-semibold">Your invitation code</p>
-              <p className="my-2 font-mono text-2xl tracking-widest">
+              <p className="font-semibold">{t("courses.yourInvitationCode")}</p>
+              <p dir="ltr" className="my-2 font-mono text-2xl tracking-widest">
                 {inviteCode}
               </p>
               <p className="mb-3 text-sm text-cova-mute">
-                Share this code with the students you want to invite.
+                {t("courses.shareCode")}
               </p>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => {
-                  void navigator.clipboard.writeText(inviteCode);
-                  setMessage("Invitation code copied.");
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(inviteCode);
+                    setMessage(t("courses.codeCopied"));
+                  } catch {
+                    setMessage(t("courses.codeCopyFailed"));
+                  }
                 }}
               >
                 <Copy className="mr-2 h-4 w-4" />
-                Copy code
+                {t("courses.copyCode")}
               </Button>
             </div>
           )}

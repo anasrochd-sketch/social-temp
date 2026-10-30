@@ -1,5 +1,3 @@
-import { DEMO_TODAY } from "@/data/assignments";
-
 export function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
@@ -13,19 +11,22 @@ export function initials(name: string): string {
     .join("");
 }
 
-/** Formats an ISO date (YYYY-MM-DD) in UTC so server and client render identically. */
+/** Formats an ISO date or timestamp using the browser's current locale. */
 export function formatDate(iso: string): string {
-  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+  return new Date(iso).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
   });
 }
 
-/** Whole days from the fixed demo "today" to the given ISO date. Negative means overdue. */
+/** Whole local calendar days from today to the given date. Negative means overdue. */
 export function daysUntil(iso: string): number {
-  const ms = new Date(`${iso}T00:00:00Z`).getTime() - new Date(`${DEMO_TODAY}T00:00:00Z`).getTime();
+  const due = new Date(iso);
+  const today = new Date();
+  const dueDay = Date.UTC(due.getFullYear(), due.getMonth(), due.getDate());
+  const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const ms = dueDay - todayDay;
   return Math.round(ms / 86_400_000);
 }
 
