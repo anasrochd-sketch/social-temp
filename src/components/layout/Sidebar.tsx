@@ -6,8 +6,7 @@ import { X } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { useI18n, useT } from "@/i18n/client";
 import { navSections } from "@/lib/navigation";
-import { notifications } from "@/data/notifications";
-import { useDemoState } from "@/lib/demo-store";
+import { useSocial } from "@/lib/social-store";
 import { cn } from "@/lib/utils";
 
 interface SidebarProps {
@@ -19,8 +18,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const t = useT();
   const { dir } = useI18n();
-  const { readNotifications } = useDemoState();
-  const unread = notifications.filter((n) => !readNotifications.includes(n.id)).length;
+  const social = useSocial();
+  const unread = social.notifications.filter((n) => n.readAt === null).length;
 
   return (
     <>

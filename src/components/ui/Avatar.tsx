@@ -15,23 +15,30 @@ const sizeClass = {
 
 interface AvatarProps {
   name: string;
+  /** Photo URL (profile avatar). Falls back to the initials when absent. */
+  src?: string | null;
   tone?: Tone;
   size?: keyof typeof sizeClass;
   className?: string;
 }
 
-export function Avatar({ name, tone = "soft", size = "md", className }: AvatarProps) {
+export function Avatar({ name, src, tone = "soft", size = "md", className }: AvatarProps) {
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-cova-ink",
+        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-cova-ink",
         toneClass[tone],
         sizeClass[size],
         className,
       )}
     >
-      {initials(name)}
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element -- avatars are public storage URLs served already sized
+        <img src={src} alt="" className="h-full w-full object-cover" />
+      ) : (
+        initials(name)
+      )}
     </span>
   );
 }

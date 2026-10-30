@@ -4,9 +4,11 @@ import {
   Award,
   BookOpen,
   Bell,
+  CircleUserRound,
   ClipboardList,
   Code2,
   FolderOpen,
+  Heart,
   LayoutDashboard,
   MessageSquare,
   Mic,
@@ -46,6 +48,7 @@ export const navSections: NavSection[] = [
   {
     titleKey: "nav.connect",
     items: [
+      { href: "/friends", labelKey: "nav.friends", icon: Heart },
       { href: "/community", labelKey: "nav.community", icon: Users },
       { href: "/messages", labelKey: "nav.messages", icon: MessageSquare },
       { href: "/voicing", label: { en: "Voicing", fr: "Voicing", ar: "Voicing" }, icon: Mic },
@@ -56,6 +59,7 @@ export const navSections: NavSection[] = [
   {
     titleKey: "nav.account",
     items: [
+      { href: "/profile", labelKey: "nav.profile", icon: CircleUserRound },
       { href: "/notifications", labelKey: "nav.notifications", icon: Bell },
       { href: "/settings", labelKey: "nav.settings", icon: Settings },
       { href: "/admin", labelKey: "nav.admin", icon: ShieldCheck },
