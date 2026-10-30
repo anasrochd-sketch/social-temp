@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { getStudent } from "@/data/students";
 import { useT } from "@/i18n/client";
-import { useHydrated } from "@/lib/demo-store";
+import { useHydrated } from "@/lib/use-hydrated";
 import {
   LIMITS,
   formatWhen,

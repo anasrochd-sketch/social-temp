@@ -115,14 +115,6 @@ export function useDemoState(): DemoState {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-export function useHydrated(): boolean {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
-}
-
 export const demoActions = {
   signIn(session: DemoSession) {
     update((s) => ({

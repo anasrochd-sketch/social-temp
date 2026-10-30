@@ -21,7 +21,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
 import { getStudent } from "@/data/students";
-import { useHydrated } from "@/lib/demo-store";
+import { useHydrated } from "@/lib/use-hydrated";
 import {
   LIMITS,
   canPost,

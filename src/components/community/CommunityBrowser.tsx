@@ -15,7 +15,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
 import { useT } from "@/i18n/client";
-import { useHydrated } from "@/lib/demo-store";
+import { useHydrated } from "@/lib/use-hydrated";
 import {
   COMMUNITY_CATEGORIES,
   incomingRequests,

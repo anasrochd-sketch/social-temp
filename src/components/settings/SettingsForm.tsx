@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/components/ui/Toast";
 import { useT } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/translate";
-import { demoActions, useDemoState, useHydrated } from "@/lib/demo-store";
+import { demoActions, useDemoState } from "@/lib/demo-store";
+import { useHydrated } from "@/lib/use-hydrated";
 import type { UserSettings } from "@/types";
 
 const visibilityKeys: Record<UserSettings["profileVisibility"], MessageKey> = {
