@@ -85,6 +85,23 @@ export interface CommunityPost {
   at: number;
 }
 
+/**
+ * One event that concerns the signed-in person, written by database triggers.
+ * `text` and `detail` carry the dynamic parts (titles, names, amounts); the
+ * sentence itself is built on the client from `kind` so it can be translated.
+ */
+export interface SocialNotification {
+  id: string;
+  kind: string;
+  /** Public id of who did the action ("" when the system did). */
+  actorId: string;
+  text: string;
+  detail: string;
+  href: string | null;
+  readAt: number | null;
+  at: number;
+}
+
 export interface SocialState {
   /** Public id of the signed-in person, or null when signed out. */
   meId: string | null;
@@ -100,6 +117,7 @@ export interface SocialState {
   members: CommunityMember[];
   requests: JoinRequest[];
   posts: CommunityPost[];
+  notifications: SocialNotification[];
 }
 
 export type ActionResult<T = undefined> = { ok: true; value: T } | { ok: false; error: string };

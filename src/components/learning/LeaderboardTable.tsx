@@ -1,80 +1,175 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Medal } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { buttonStyles } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs } from "@/components/ui/Tabs";
 import { getStudent } from "@/data/students";
 import { useI18n } from "@/i18n/client";
 import { useS } from "@/i18n/spaces";
 import { useDemoState } from "@/lib/demo-store";
 import { buildLeaderboard, levelFor, xpBreakdown } from "@/lib/progress";
+import { useSocial } from "@/lib/social-store";
+import { getSupabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-/** XP ranking linked to the signed-in account (name + XP come from the account, not a fixed demo user). */
+interface RealRow {
+  id: string;
+  name: string;
+  xp: number;
+  isMe: boolean;
+  rank: number;
+}
+
+interface ProfileRow {
+  user_code: string | null;
+  display_name: string | null;
+  xp: number | null;
+}
+
+/**
+ * XP ranking. Signed in: real XP stored on the server (profiles.xp, credited by
+ * the database when a challenge is graded). Signed out: the sample board.
+ */
 export function LeaderboardTable() {
   const t = useS();
   const { formatTag } = useI18n();
   const state = useDemoState();
+  const social = useSocial();
   const [top5, setTop5] = useState(false);
-  const signedIn = !!state.session;
+  const storeReady = social.ready;
+  const signedIn = storeReady && !!social.meId;
 
-  const breakdown = xpBreakdown(state);
-  const name = state.session?.name ?? state.settings.displayName;
-  const everyone = buildLeaderboard(breakdown.total, name);
-  const all = signedIn
-    ? everyone
-    : everyone.filter((r) => !r.isMe).map((r, i) => ({ ...r, rank: i + 1 }));
+  const [realRows, setRealRows] = useState<RealRow[]>([]);
+  const [myRank, setMyRank] = useState<number | null>(null);
+  const [myXp, setMyXp] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!signedIn || !social.meId) return;
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional data fetch on mount into component state
+    setLoading(true);
+    void (async () => {
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("user_code,display_name,xp")
+          .order("xp", { ascending: false })
+          .limit(100);
+        if (error) throw error;
+
+        const rows: RealRow[] = [];
+        let myXpValue: number | null = null;
+        let myRankValue: number | null = null;
+        ((data ?? []) as ProfileRow[]).forEach((row, i) => {
+          const isMe = row.user_code !== null && row.user_code === social.meId;
+          rows.push({
+            id: row.user_code ?? `row-${i}`,
+            name: row.display_name?.trim() || "Student",
+            xp: row.xp ?? 0,
+            isMe,
+            rank: i + 1,
+          });
+          if (isMe) {
+            myXpValue = row.xp ?? 0;
+            myRankValue = i + 1;
+          }
+        });
+
+        // Outside the top 100: read the own row and derive the rank from the count of better scores.
+        if (myRankValue === null) {
+          const { data: mine } = await supabase
+            .from("profiles")
+            .select("xp")
+            .eq("user_code", social.meId)
+            .maybeSingle();
+          myXpValue = (mine as { xp: number | null } | null)?.xp ?? 0;
+          const { count } = await supabase
+            .from("profiles")
+            .select("user_code", { count: "exact", head: true })
+            .gt("xp", myXpValue);
+          myRankValue = (count ?? 0) + 1;
+        }
+
+        if (active) {
+          setRealRows(rows);
+          setMyXp(myXpValue);
+          setMyRank(myRankValue);
+        }
+      } catch (error) {
+        console.error("Unable to load the leaderboard:", error);
+        if (active) setRealRows([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [signedIn, social.meId]);
+
+  const meName = social.meId ? social.users[social.meId]?.displayName ?? "" : "";
+
+  // Signed-out fallback: the sample board, without the demo user itself.
+  const demoBreakdown = xpBreakdown(state);
+  const demoName = state.session?.name ?? state.settings.displayName;
+  const demoAll = buildLeaderboard(demoBreakdown.total, demoName)
+    .filter((r) => !r.isMe)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  const all: RealRow[] = signedIn
+    ? realRows
+    : demoAll.map((r) => ({ id: r.id, name: r.name, xp: r.xp, isMe: false, rank: r.rank }));
   const rows = top5 ? all.slice(0, 5) : all;
-  const me = all.find((r) => r.isMe);
   const fmt = (n: number) => n.toLocaleString(formatTag);
   const tabAll = t("lb.all");
   const tabTop = t("lb.top5");
-
-  const parts: Array<[string, number]> = [
-    [t("lb.b.base"), breakdown.base],
-    [t("lb.b.learning"), breakdown.learning],
-    [t("lb.b.voice"), breakdown.voice],
-    [t("lb.b.hosted"), breakdown.hosted],
-    [t("lb.b.chat"), breakdown.chat],
-  ];
+  const level = myXp !== null ? levelFor(myXp) : null;
 
   return (
     <>
       <PageHeader title={t("lb.title")} description={t("lb.desc")} />
 
-      {signedIn && me ? (
+      {!storeReady || (signedIn && loading) ? (
+        <p className="mb-4 rounded-lg bg-cova-pale px-4 py-3 text-sm">{t("lb.loading")}</p>
+      ) : signedIn && myRank !== null && myXp !== null ? (
         <p className="mb-4 rounded-lg bg-cova-pale px-4 py-3 text-sm">
-          {t("lb.ranked", { name, rank: me.rank, xp: fmt(me.xp) })}
+          {t("lb.ranked", { name: meName, rank: myRank, xp: fmt(myXp) })}
         </p>
-      ) : (
+      ) : !signedIn ? (
         <div className="mb-4 flex flex-col gap-3 rounded-lg bg-cova-pale px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
           <span>{t("lb.signin")}</span>
           <Link href="/login" className={buttonStyles({ size: "sm", variant: "secondary" })}>
             {t("lb.signinBtn")}
           </Link>
         </div>
-      )}
+      ) : null}
 
-      {signedIn && (
+      {signedIn && level && (
         <Card className="mb-4">
           <CardBody>
-            <h2 className="mb-3 text-sm font-semibold">{t("lb.breakdown")}</h2>
-            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              {parts.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex justify-between gap-3 border-b border-cova-line pb-1.5"
-                >
-                  <dt className="text-cova-mute">{label}</dt>
-                  <dd className="font-medium">{fmt(value)}</dd>
-                </div>
-              ))}
-            </dl>
+            <h2 className="mb-3 text-sm font-semibold">{t("lb.progressTitle")}</h2>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <p className="font-semibold">
+                {t("lb.level")} {level.level}
+              </p>
+              <p className="text-cova-mute">
+                {t("lb.progressNext", { into: fmt(level.into), needed: fmt(level.needed), next: level.level + 1 })}
+              </p>
+            </div>
+            <ProgressBar
+              value={level.into}
+              max={level.needed}
+              label={t("lb.progressTitle")}
+              className="mt-2"
+            />
           </CardBody>
         </Card>
       )}

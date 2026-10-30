@@ -2,62 +2,115 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Bell, BellOff, ClipboardList, MessageSquare, Settings, Trophy, Users } from "lucide-react";
+import {
+  Award,
+  Bell,
+  BellOff,
+  BookOpen,
+  Check,
+  ClipboardCheck,
+  ClipboardList,
+  Shield,
+  UserCheck,
+  UserPlus,
+  Users,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
-import { notifications } from "@/data/notifications";
-import { demoActions, useDemoState } from "@/lib/demo-store";
+import { useT } from "@/i18n/client";
+import { notificationSentence } from "@/lib/notifications";
+import { formatWhen, socialActions, useSocial } from "@/lib/social-store";
 import { cn } from "@/lib/utils";
-import type { NotificationKind } from "@/types";
 
-const TABS = ["All", "Unread"] as const;
-const icons: Record<NotificationKind, typeof Bell> = {
-  assignment: ClipboardList,
-  group: Users,
-  challenge: Trophy,
-  message: MessageSquare,
-  system: Settings,
+const KIND_ICONS: Record<string, LucideIcon> = {
+  friend_request: UserPlus,
+  friend_accepted: UserCheck,
+  join_request: Users,
+  join_request_approved: Check,
+  join_request_denied: X,
+  member_joined: Users,
+  member_removed: UserPlus,
+  role_changed: Shield,
+  assignment_created: ClipboardList,
+  assignment_graded: ClipboardCheck,
+  xp_earned: Award,
+  resource_added: BookOpen,
 };
 
 export function NotificationsList() {
-  const { readNotifications } = useDemoState();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("All");
-  const unread = notifications.filter((n) => !readNotifications.includes(n.id));
-  const rows = tab === "All" ? notifications : unread;
+  const t = useT();
+  const social = useSocial();
+  const [tab, setTab] = useState<"all" | "unread">("all");
+
+  if (!social.ready) {
+    return (
+      <Card>
+        <ul className="divide-y divide-cova-line">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="flex items-center gap-4 p-4">
+              <Skeleton className="h-9 w-9 rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-3 w-1/4" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    );
+  }
+
+  if (!social.meId) {
+    return (
+      <EmptyState
+        icon={BellOff}
+        title={t("notif.caughtUp")}
+        description={t("notif.signin")}
+      />
+    );
+  }
+
+  const unread = social.notifications.filter((n) => n.readAt === null);
+  const rows = tab === "all" ? social.notifications : unread;
+  const tabs = [t("notif.all"), t("notif.unreadTab")] as const;
 
   return (
     <>
       <div className="mb-4 flex items-center justify-between">
         <Tabs
-          tabs={TABS}
-          value={tab}
-          onChange={setTab}
-          label="Notification filter"
-          counts={{ Unread: unread.length }}
+          tabs={[...tabs]}
+          value={tab === "all" ? tabs[0] : tabs[1]}
+          onChange={(v) => setTab(v === tabs[1] ? "unread" : "all")}
+          label={t("notif.title")}
+          counts={{ [t("notif.unreadTab")]: unread.length }}
         />
         <Button
           variant="secondary"
           size="sm"
           disabled={unread.length === 0}
-          onClick={() => demoActions.markAllNotificationsRead(notifications.map((n) => n.id))}
+          onClick={() => void socialActions.markAllNotificationsRead(social.meId ?? "")}
         >
-          Mark all as read
+          {t("notif.markAll")}
         </Button>
       </div>
       {rows.length === 0 ? (
         <EmptyState
           icon={BellOff}
-          title="You're all caught up"
-          description="New notifications about assignments, groups and messages will show up here."
+          title={t("notif.caughtUp")}
+          description={t("notif.caughtUpBody")}
         />
       ) : (
         <Card>
           <ul className="divide-y divide-cova-line">
             {rows.map((n) => {
-              const Icon = icons[n.kind];
-              const isUnread = !readNotifications.includes(n.id);
+              const Icon = KIND_ICONS[n.kind] ?? Bell;
+              const isUnread = n.readAt === null;
+              const sentence = notificationSentence(n, social.users, t);
               return (
                 <li
                   key={n.id}
@@ -68,19 +121,22 @@ export function NotificationsList() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold">
-                      {n.title}
-                      {isUnread && <span className="sr-only"> (unread)</span>}
+                      {sentence}
+                      {isUnread && <span className="sr-only"> ({t("notif.unreadTab")})</span>}
                     </p>
-                    <p className="text-sm text-cova-mute">{n.body}</p>
                     <p className="mt-1 flex gap-3 text-xs text-cova-mute">
-                      <span>{n.time}</span>
+                      <span>{formatWhen(n.at)}</span>
                       {n.href && (
                         <Link
                           href={n.href}
-                          onClick={() => demoActions.markNotificationRead(n.id)}
+                          onClick={() => {
+                            if (isUnread) {
+                              void socialActions.markNotificationRead(social.meId ?? "", n.id);
+                            }
+                          }}
                           className="font-medium text-cova-ink underline-offset-2 hover:underline"
                         >
-                          Open
+                          {t("notif.open")}
                         </Link>
                       )}
                     </p>
@@ -89,9 +145,9 @@ export function NotificationsList() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => demoActions.markNotificationRead(n.id)}
+                      onClick={() => void socialActions.markNotificationRead(social.meId ?? "", n.id)}
                     >
-                      Mark as read
+                      {t("notif.markRead")}
                     </Button>
                   )}
                 </li>

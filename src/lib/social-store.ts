@@ -34,6 +34,8 @@ import type {
 
   PostingPolicy,
 
+  SocialNotification,
+
   SocialState,
 
   SocialUser,
@@ -113,6 +115,19 @@ export const LIMITS = {
 const MESSAGE_LIMIT = 1000;
 
 const POST_LIMIT = 1000;
+
+const NOTIFICATION_LIMIT = 50;
+
+interface NotificationRow {
+  id: string;
+  kind: string;
+  actor_id: string | null;
+  text: string;
+  detail: string;
+  href: string | null;
+  read_at: string | null;
+  created_at: string;
+}
 
 
 
@@ -354,6 +369,8 @@ const INITIAL: SocialState = {
 
   posts: [],
 
+  notifications: [],
+
 };
 
 
@@ -562,7 +579,7 @@ async function resolveUuid(sb: SupabaseClient, publicId: string): Promise<string
 
 
 
-type Slice = "profile" | "friends" | "messages" | "communities" | "posts";
+type Slice = "profile" | "friends" | "messages" | "communities" | "posts" | "notifications";
 
 
 
@@ -852,6 +869,37 @@ async posts(sb) {
 },
 
 
+
+  async notifications(sb, me) {
+    void me;
+    const data = await rows<NotificationRow>(
+      sb
+        .from("notifications")
+        .select("id,kind,actor_id,text,detail,href,read_at,created_at")
+        .order("created_at", { ascending: false })
+        .limit(NOTIFICATION_LIMIT),
+    );
+
+    await ensureProfiles(
+      sb,
+      data.map((r) => r.actor_id).filter((id): id is string => Boolean(id)),
+    );
+
+    const notifications: SocialNotification[] = data.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      actorId: r.actor_id ? pub(r.actor_id) : "",
+      text: r.text,
+      detail: r.detail,
+      href: r.href,
+      readAt: r.read_at ? Date.parse(r.read_at) : null,
+      at: Date.parse(r.created_at),
+    }));
+
+    commit({ users: usersSnapshot(), notifications });
+  },
+
+
 };
 
 
@@ -926,7 +974,7 @@ function scheduleRefresh(slice: Slice): void {
 
 function refreshAll(): Promise<void[]> {
 
-  return Promise.all((["friends", "messages", "communities", "posts"] as const).map(refresh));
+  return Promise.all((["friends", "messages", "communities", "posts", "notifications"] as const).map(refresh));
 
 }
 
@@ -967,6 +1015,7 @@ function subscribeRealtime(sb: SupabaseClient, me: string): void {
   listen("space_members", "communities");
   listen("space_join_requests", "communities");
   listen("space_posts", "posts");
+  listen("notifications", "notifications", `user_id=eq.${me}`);
   // Anything missed while the socket was down is picked up when it (re)connects.
 
   ch.subscribe((status) => {
@@ -1096,6 +1145,8 @@ function hydrateDemoState(): void {
     requests: [],
 
     posts: [],
+
+    notifications: [],
 
   });
 
@@ -2599,4 +2650,44 @@ return ok(undefined);
 
   await refresh("communities");
 },
+
+
+
+  /* ---- notifications ---- */
+
+  /** Marks one notification read. Row Level Security limits the write to own rows. */
+  async markNotificationRead(me: string, id: string): Promise<ActionResult> {
+    void me;
+    const s = await session();
+    if (!s.ok) return fail(s.error);
+
+    const { error } = await s.value.sb
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", s.value.me)
+      .is("read_at", null)
+      .select("id");
+
+    if (error) return fail(describe(error));
+    await refresh("notifications");
+    return ok(undefined);
+  },
+
+  async markAllNotificationsRead(me: string): Promise<ActionResult> {
+    void me;
+    const s = await session();
+    if (!s.ok) return fail(s.error);
+
+    const { error } = await s.value.sb
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("user_id", s.value.me)
+      .is("read_at", null)
+      .select("id");
+
+    if (error) return fail(describe(error));
+    await refresh("notifications");
+    return ok(undefined);
+  },
 };

@@ -40,6 +40,7 @@ export function DashboardView() {
   const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [learningLoading, setLearningLoading] = useState(true);
+  const [challengesDone, setChallengesDone] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -123,6 +124,14 @@ export function DashboardView() {
         if (enrollmentResult.error) throw enrollmentResult.error;
         if (lessonResult.error) throw lessonResult.error;
 
+        const challengesResult = await supabase
+          .from("challenge_submissions")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("status", "submitted");
+
+        if (challengesResult.error) throw challengesResult.error;
+
         if (active) {
           setEnrolledCourses(
             (enrollmentResult.data ?? []).map((row) => row.course_id),
@@ -131,6 +140,8 @@ export function DashboardView() {
           setCompletedLessons(
             (lessonResult.data ?? []).map((row) => row.lesson_id),
           );
+
+          setChallengesDone(challengesResult.count ?? 0);
         }
       } catch (error) {
         console.error(
@@ -296,7 +307,11 @@ export function DashboardView() {
         <StatCard
           icon={Award}
           label={t("dashboard.challengesDone")}
-          value={String(state.completedChallenges.length)}
+          value={
+            learningLoading
+              ? "..."
+              : String(challengesDone ?? state.completedChallenges.length)
+          }
         />
       </div>
 
