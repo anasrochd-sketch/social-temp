@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { CallOverlay } from "@/components/messages/CallOverlay";
 import { useI18n } from "@/i18n/client";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -24,6 +25,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      {/* Global call screen: rings on every page while someone is signed in. */}
+      <CallOverlay />
     </div>
   );
 }

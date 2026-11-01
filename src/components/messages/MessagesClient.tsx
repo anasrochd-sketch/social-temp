@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageSquare, Plus, UserPlus, X } from "lucide-react";
+import { ArrowLeft, MessageSquare, Phone, Plus, UserPlus, Video, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -29,6 +29,7 @@ import { cn, matchesQuery } from "@/lib/utils";
 import type { PostAttachment, SocialUser } from "@/types/social";
 import { ChatComposer } from "@/components/messages/ChatComposer";
 import { ChatMessageBubble } from "@/components/messages/ChatMessageBubble";
+import { callActions } from "@/lib/call";
 
 export function MessagesClient({ initialTo }: { initialTo?: string }) {
   const toast = useToast();
@@ -287,6 +288,46 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                   </p>
                   <p className="truncate font-mono text-xs text-cova-mute">{selected.id}</p>
                 </div>
+                {meId && !selected.sample && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label={t("call.audio")}
+                      title={t("call.audio")}
+                      onClick={() =>
+                        void callActions.startCall(
+                          {
+                            publicId: selected.id,
+                            displayName: selected.displayName,
+                            tone: selected.tone,
+                          },
+                          "audio",
+                        )
+                      }
+                      className="rounded-full p-2 text-cova-mute hover:bg-cova-pale hover:text-cova-ink"
+                    >
+                      <Phone className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t("call.video")}
+                      title={t("call.video")}
+                      onClick={() =>
+                        void callActions.startCall(
+                          {
+                            publicId: selected.id,
+                            displayName: selected.displayName,
+                            tone: selected.tone,
+                          },
+                          "video",
+                        )
+                      }
+                      className="rounded-full p-2 text-cova-mute hover:bg-cova-pale hover:text-cova-ink"
+                    >
+                      <Video className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
                 {relation === "none" && (
                   <Button
                     size="sm"
