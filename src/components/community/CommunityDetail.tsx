@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Globe, Lock, SearchX, Trash2, Users } from "lucide-react";
 import { MediaComposer } from "@/components/common/MediaComposer";
 import { PostAttachments } from "@/components/common/PostAttachments";
+import { SharePanel } from "@/components/common/SharePanel";
 import {
   MembersTab,
   RequestsTab,
@@ -138,7 +139,13 @@ function postingNotice(community: Community, role: CommunityRole | null, t: TFun
     : t("community.postStaffOnly");
 }
 
-export function CommunityDetail({ communityId }: { communityId: string }) {
+export function CommunityDetail({
+  communityId,
+  joinParam = "",
+}: {
+  communityId: string;
+  joinParam?: string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const t = useT();
@@ -160,6 +167,25 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
       cancelled = true;
     };
   }, [communityId]);
+
+  // Opened through an invite link (?join=CODE): join by that code once.
+  const joinAttemptRef = useRef("");
+  const wantedCode = joinParam.trim().toUpperCase();
+  useEffect(() => {
+    if (!hydrated || !me || !wantedCode || joinAttemptRef.current === wantedCode) return;
+    joinAttemptRef.current = wantedCode;
+    void socialActions.joinByCode(me.id, wantedCode).then((result) => {
+      if (!result.ok) return; // the regular page (or the private gate) stays on screen
+      const { outcome } = result.value;
+      toast.push(
+        outcome === "requested"
+          ? t("community.privateRequested")
+          : outcome === "joined"
+            ? t("community.joinedCommunity")
+            : t("community.alreadyMember"),
+      );
+    });
+  }, [wantedCode, hydrated, me, toast, t]);
 
   const posts = useMemo(
     () => social.posts.filter((p) => p.communityId === communityId).sort((a, b) => b.at - a.at),
@@ -291,6 +317,18 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
           </div>
         </CardBody>
       </Card>
+
+      {staff && (
+        <div className="mt-4">
+          <SharePanel
+            title={community.name}
+            spaceId={community.id}
+            code={community.joinCode}
+            path={`/community/${community.id}`}
+            canRegenerate={role === "owner"}
+          />
+        </div>
+      )}
 
       <div className="mt-6">
         <Tabs

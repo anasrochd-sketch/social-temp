@@ -48,3 +48,18 @@ language filter simply stays off (all communities visible).
 | Voice rooms | `SpacePanel.tsx` (QR button) |
 | Translations | `src/i18n/messages/{en,fr,ar}.ts`, `src/i18n/spaces.ts` |
 | Database | `supabase/migrations/20261102000001_locale_and_media.sql` |
+
+## Round 2: invite links that actually join (no database change)
+
+The share panel now exists in all three places — community page, group page and
+inside a voice room — and invite links do the joining automatically:
+
+| Place | What staff see | What the invited person gets |
+| --- | --- | --- |
+| Community | Code + link + QR (owner can regenerate) | `/community/{id}?join=CODE` auto-joins or sends the request |
+| Group | Code + link + QR | `/groups/{id}?join=CODE` auto-joins, works even for private groups |
+| Voice room | Code + link + QR | `/voicing/{code}` link, or the code in "Join by code" |
+
+Changed files: `GroupDetail.tsx` (+auto-join), `CommunityDetail.tsx` (+SharePanel, +auto-join),
+`VoiceRoom.tsx` (+SharePanel), and the two page files that forward `?join=`.
+No new migration is needed — it reuses the existing `join_codes` tables and RPCs.

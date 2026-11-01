@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DoorClosed, Send, Users } from "lucide-react";
 import { MediaComposer } from "@/components/common/MediaComposer";
@@ -35,7 +35,7 @@ type GroupMessage = {
 
 type MemberRole = "owner" | "admin" | "member";
 
-export function GroupDetail({ code }: { code: string }) {
+export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?: string }) {
   const router = useRouter();
   const t = useT();
 
@@ -174,6 +174,46 @@ export function GroupDetail({ code }: { code: string }) {
 
     return () => cancelAnimationFrame(frame);
   }, [loadGroup]);
+
+  // Opened through an invite link (?join=CODE): join by that code once,
+  // even when RLS hides a private group until the membership exists.
+  const joinAttemptRef = useRef("");
+  useEffect(() => {
+    const wanted = joinParam.trim().toUpperCase();
+    if (loading || !wanted || joinAttemptRef.current === wanted) return;
+    joinAttemptRef.current = wanted;
+
+    void (async () => {
+      try {
+        const supabase = getSupabase();
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user) return; // the sign-in hint is already on screen
+
+        const { data, error: rpcError } = await supabase.rpc("join_by_code", {
+          p_code: wanted,
+        });
+        if (rpcError) throw rpcError;
+
+        const result = data as { communityId?: string; outcome?: string } | null;
+        if (result?.communityId && group && result.communityId !== group.id) {
+          router.replace(`/groups/${result.communityId}`);
+          return;
+        }
+
+        setNotice(
+          result?.outcome === "requested"
+            ? t("group.joinRequested")
+            : result?.outcome === "already-member"
+              ? t("group.alreadyMember")
+              : t("group.joined"),
+        );
+        await loadGroup();
+      } catch (err) {
+        // Wrong or expired code: keep the regular page instead of an error screen.
+        console.error("Invite auto-join failed:", err);
+      }
+    })();
+  }, [joinParam, loading, group, loadGroup, router, t]);
 
   // Actualiser les publications en temps réel
   useEffect(() => {
