@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, MessageSquare, Plus, Send, UserPlus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, MessageSquare, Plus, UserPlus, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -15,7 +15,6 @@ import { getStudent } from "@/data/students";
 import { useT } from "@/i18n/client";
 import { useHydrated } from "@/lib/use-hydrated";
 import {
-  LIMITS,
   formatWhen,
   friendsOf,
   listThreads,
@@ -27,7 +26,9 @@ import {
   useSocial,
 } from "@/lib/social-store";
 import { cn, matchesQuery } from "@/lib/utils";
-import type { SocialUser } from "@/types/social";
+import type { PostAttachment, SocialUser } from "@/types/social";
+import { ChatComposer } from "@/components/messages/ChatComposer";
+import { ChatMessageBubble } from "@/components/messages/ChatMessageBubble";
 
 export function MessagesClient({ initialTo }: { initialTo?: string }) {
   const toast = useToast();
@@ -41,7 +42,6 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [peopleQuery, setPeopleQuery] = useState("");
-  const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
   const threads = useMemo(() => (meId ? listThreads(social, meId) : []), [social, meId]);
@@ -102,15 +102,21 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
     setPeopleQuery("");
   }
 
-  async function send(e: FormEvent) {
-    e.preventDefault();
-    if (!selected) return;
-    const result = await socialActions.sendDirectMessage(meId, selected.id, draft);
-    if (!result.ok) {
-      toast.push(result.error);
-      return;
-    }
-    setDraft("");
+  /** Label shown in the thread list when the last message is a photo / voice note / file. */
+  function previewLabel(attachments: PostAttachment[]): string {
+    const first = attachments[0];
+    if (!first) return "";
+    if (first.kind === "image") return t("messages.photo");
+    if (first.kind === "audio") return t("messages.voiceNote");
+    if (first.kind === "video") return t("messages.video");
+    return t("messages.file");
+  }
+
+  async function send(text: string, attachments: PostAttachment[]) {
+    if (!selected) return { ok: false as const, error: t("messages.selectConversation") };
+    const result = await socialActions.sendDirectMessage(meId, selected.id, text, attachments);
+    if (!result.ok) toast.push(result.error);
+    return result;
   }
 
   const relation = selected ? relationStatus(social, meId, selected.id) : "none";
@@ -174,7 +180,9 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
           {composing ? (
             <ul className="flex-1 overflow-y-auto">
               {!peopleQuery.trim() && peopleResults.length > 0 && (
-                <li className="px-4 pt-3 text-xs font-medium text-cova-mute">{t("messages.yourFriends")}</li>
+                <li className="px-4 pt-3 text-xs font-medium text-cova-mute">
+                  {t("messages.yourFriends")}
+                </li>
               )}
               {peopleResults.length === 0 && (
                 <li className="p-4 text-sm text-cova-mute">
@@ -193,7 +201,9 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                     <Avatar name={u.displayName} tone={u.tone} size="md" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold">{u.displayName}</span>
-                      <span className="block truncate font-mono text-xs text-cova-mute">{u.id}</span>
+                      <span className="block truncate font-mono text-xs text-cova-mute">
+                        {u.id}
+                      </span>
                     </span>
                   </button>
                 </li>
@@ -208,36 +218,36 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                     : t("messages.noConversationsMatch")}
                 </li>
               )}
-              {visibleThreads.map((t) => {
-                const name = t.other?.displayName ?? "Unknown person";
-                const active = t.otherId === selected?.id;
+              {visibleThreads.map((thread) => {
+                const name = thread.other?.displayName ?? "Unknown person";
+                const active = thread.otherId === selected?.id;
                 return (
-                  <li key={t.otherId}>
+                  <li key={thread.otherId}>
                     <button
                       type="button"
-                      onClick={() => open(t.otherId)}
+                      onClick={() => open(thread.otherId)}
                       aria-current={active ? "true" : undefined}
                       className={cn(
                         "flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-cova-bg",
                         active && "bg-cova-pale",
                       )}
                     >
-                      <Avatar name={name} tone={t.other?.tone} size="md" />
+                      <Avatar name={name} tone={thread.other?.tone} size="md" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold">{name}</span>
                           <span className="shrink-0 text-xs text-cova-mute">
-                            {formatWhen(t.last.at)}
+                            {formatWhen(thread.last.at)}
                           </span>
                         </span>
                         <span className="block truncate text-xs text-cova-mute">
-                          {t.last.fromId === meId && "You: "}
-                          {t.last.text}
+                          {thread.last.fromId === meId && `${t("messages.youPrefix")} `}
+                          {thread.last.text || previewLabel(thread.last.attachments)}
                         </span>
                       </span>
-                      {t.unread > 0 && !active && (
+                      {thread.unread > 0 && !active && (
                         <span className="rounded-full bg-cova-soft px-2 py-0.5 text-xs font-medium">
-                          {t.unread}
+                          {thread.unread}
                         </span>
                       )}
                     </button>
@@ -283,7 +293,9 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                     variant="secondary"
                     onClick={async () => {
                       const result = await socialActions.sendFriendRequest(meId, selected.id);
-                      toast.push(result.ok ? `${t("messages.requestSent")} ${firstName}` : result.error);
+                      toast.push(
+                        result.ok ? `${t("messages.requestSent")} ${firstName}` : result.error,
+                      );
                     }}
                   >
                     <UserPlus className="h-4 w-4" aria-hidden="true" /> {t("messages.addFriend")}
@@ -294,8 +306,14 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                   <Button
                     size="sm"
                     onClick={async () => {
-                      const result = await socialActions.respondFriendRequest(meId, selected.id, true);
-                      toast.push(result.ok ? `${t("messages.youAreNowFriends")} ${firstName}` : result.error);
+                      const result = await socialActions.respondFriendRequest(
+                        meId,
+                        selected.id,
+                        true,
+                      );
+                      toast.push(
+                        result.ok ? `${t("messages.youAreNowFriends")} ${firstName}` : result.error,
+                      );
                     }}
                   >
                     {t("messages.acceptRequest")}
@@ -310,36 +328,20 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                   </p>
                 )}
                 {messages.map((m) => (
-                  <div
+                  <ChatMessageBubble
                     key={m.id}
-                    className={cn("flex", m.fromId === meId ? "justify-end" : "justify-start")}
-                  >
-                    <div
-                      className={cn(
-                        "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
-                        m.fromId === meId ? "bg-cova-soft" : "border border-cova-line bg-white",
-                      )}
-                    >
-                      <p className="whitespace-pre-line break-words">{m.text}</p>
-                      <p className="mt-1 text-[11px] text-cova-ink/70">{formatWhen(m.at)}</p>
-                    </div>
-                  </div>
+                    message={m}
+                    mine={m.fromId === meId}
+                    time={formatWhen(m.at)}
+                  />
                 ))}
                 <div ref={endRef} />
               </div>
-              <form onSubmit={send} className="flex gap-2 border-t border-cova-line p-3">
-                <input
-                  aria-label={t("messages.message")}
-                  value={draft}
-                  maxLength={LIMITS.text.max}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={`${t("messages.message")} ${firstName}`}
-                  className="h-10 flex-1 rounded-lg border border-cova-line px-3 text-sm placeholder:text-cova-mute"
-                />
-                <Button type="submit" disabled={!draft.trim()}>
-                  <Send className="h-4 w-4" aria-hidden="true" /> {t("messages.send")}
-                </Button>
-              </form>
+              <ChatComposer
+                onSend={send}
+                placeholder={`${t("messages.message")} ${firstName}`}
+                label={t("messages.message")}
+              />
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center p-6">

@@ -2,12 +2,13 @@ import { getSupabase } from "@/lib/supabase/client";
 import type { PostAttachment } from "@/types/social";
 
 /**
- * Uploads a media file to the shared "space-media" storage bucket and returns the
- * attachment descriptor stored with posts and group messages.
+ * Uploads a media file to a storage bucket and returns the attachment descriptor stored with
+ * posts, group messages and DMs.
  *
- * The bucket is created by supabase/migrations/20261102000001_locale_and_media.sql
- * (or docs/COMMUNITY_GROUPS_UPDATE.md). If it is missing, the error message tells the
- * person to run that SQL first.
+ * Buckets (created by supabase/migrations):
+ *  - "space-media" (default): community posts and group messages — 20261102000001_locale_and_media.sql
+ *  - "dm-media": direct-message photos, voice notes and files — 20261102000005_dm_media.sql
+ * If a bucket is missing, the error message tells the person to run that SQL first.
  */
 
 /** 25 MB — generous for images, voice notes and short clips. */
@@ -42,6 +43,7 @@ function safeName(name: string): string {
 export async function uploadMedia(
   spaceId: string,
   file: File,
+  bucket: "space-media" | "dm-media" = "space-media",
 ): Promise<{ ok: true; value: PostAttachment } | { ok: false; error: string }> {
   if (file.size > MAX_MEDIA_BYTES) {
     return { ok: false, error: "File is too large (max 25 MB)." };
@@ -52,17 +54,17 @@ export async function uploadMedia(
   const path = `${spaceId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName(file.name)}`;
 
   const { error } = await supabase.storage
-    .from("space-media")
+    .from(bucket)
     .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
 
   if (error) {
     const message = /bucket/i.test(error.message)
-      ? "Media storage is not active yet. Ask the project owner to run the SQL setup (see docs/COMMUNITY_GROUPS_UPDATE.md)."
+      ? `Media storage is not active yet. Ask the project owner to run the SQL setup for the "${bucket}" bucket.`
       : error.message;
     return { ok: false, error: message };
   }
 
-  const { data } = supabase.storage.from("space-media").getPublicUrl(path);
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
 
   return {
     ok: true,

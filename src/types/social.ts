@@ -39,6 +39,8 @@ export interface DirectMessage {
   fromId: string;
   text: string;
   at: number;
+  /** Photos, voice notes, videos or files attached to the message (empty for plain text). */
+  attachments: PostAttachment[];
 }
 
 export type CommunityVisibility = "public" | "private";

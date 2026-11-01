@@ -165,7 +165,14 @@ interface MessageRow {
 
   body: string;
 
+  attachments: PostAttachment[] | null;
+
   created_at: string;
+}
+
+/** The attachments column is new; old rows and late migrations return null. */
+function attachmentList(value: PostAttachment[] | null): PostAttachment[] {
+  return Array.isArray(value) ? value : [];
 }
 
 interface ReadRow {
@@ -440,6 +447,9 @@ let spacesLocaleSupported = true;
 
 let spaceAttachmentsSupported = true;
 
+/** Whether the live `direct_messages` table already has the attachments column (dm_media SQL). */
+let dmAttachmentsSupported = true;
+
 function lockedPlaceholder(id: string): Community {
   // Reveals nothing: the detail screen shows its "private, enter a code" gate for these.
 
@@ -509,8 +519,37 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>> 
   },
 
   async messages(sb, me) {
-    const [msgs, readRows] = await Promise.all([
-      rows<MessageRow>(
+    // The attachments column may not exist yet (dm_media SQL not applied); fall back gracefully.
+    let msgs: MessageRow[];
+    if (dmAttachmentsSupported) {
+      try {
+        msgs = await rows<MessageRow>(
+          sb
+
+            .from("direct_messages")
+
+            .select("id,from_id,to_id,body,attachments,created_at")
+
+            .order("created_at", { ascending: false })
+
+            .limit(MESSAGE_LIMIT),
+        );
+      } catch {
+        dmAttachmentsSupported = false;
+        msgs = await rows<MessageRow>(
+          sb
+
+            .from("direct_messages")
+
+            .select("id,from_id,to_id,body,created_at")
+
+            .order("created_at", { ascending: false })
+
+            .limit(MESSAGE_LIMIT),
+        );
+      }
+    } else {
+      msgs = await rows<MessageRow>(
         sb
 
           .from("direct_messages")
@@ -520,10 +559,10 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>> 
           .order("created_at", { ascending: false })
 
           .limit(MESSAGE_LIMIT),
-      ),
+      );
+    }
 
-      rows<ReadRow>(sb.from("message_reads").select("other_id,read_at")),
-    ]);
+    const readRows = await rows<ReadRow>(sb.from("message_reads").select("other_id,read_at"));
 
     msgs.reverse();
 
@@ -548,6 +587,7 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>> 
         threadId: pairKey(from, to),
         fromId: from,
         text: m.body,
+        attachments: attachmentList(m.attachments),
         at: Date.parse(m.created_at),
       });
     }
@@ -1582,10 +1622,15 @@ export const socialActions = {
 
   /* ---- direct messages ---- */
 
-  async sendDirectMessage(me: string, otherId: string, text: string): Promise<ActionResult> {
+  async sendDirectMessage(
+    me: string,
+    otherId: string,
+    text: string,
+    attachments: PostAttachment[] = [],
+  ): Promise<ActionResult> {
     const body = text.trim();
 
-    if (!body) return fail("Write a message first.");
+    if (!body && attachments.length === 0) return fail("Write a message first.");
 
     if (body.length > LIMITS.text.max)
       return fail(`Messages can be at most ${LIMITS.text.max} characters.`);
@@ -1604,7 +1649,10 @@ export const socialActions = {
       const messageId = `demo-${at}`;
 
       commit({
-        messages: [...state.messages, { id: messageId, threadId, fromId: meKey, text: body, at }],
+        messages: [
+          ...state.messages,
+          { id: messageId, threadId, fromId: meKey, text: body, attachments: [...attachments], at },
+        ],
 
         reads: { ...state.reads, [`${meKey}:${threadId}`]: at },
       });
@@ -1618,15 +1666,39 @@ export const socialActions = {
 
     if (other === s.value.me) return fail("You can't message yourself.");
 
-    const { data, error } = await s.value.sb
+    // Attachments are new; when the dm_media SQL hasn't run yet, degrade instead of failing.
+    let insertResult = await s.value.sb
 
       .from("direct_messages")
 
-      .insert({ to_id: other, body })
+      .insert({ to_id: other, body, attachments })
 
-      .select("id,from_id,to_id,body,created_at")
+      .select("id,from_id,to_id,body,attachments,created_at")
 
       .single();
+
+    if (
+      insertResult.error &&
+      attachments.length > 0 &&
+      /attach|column|PGRST204/i.test(insertResult.error.message ?? "")
+    ) {
+      dmAttachmentsSupported = false;
+
+      if (!body)
+        return fail("Media messages need the database update (run 20261102000005_dm_media.sql).");
+
+      insertResult = await s.value.sb
+
+        .from("direct_messages")
+
+        .insert({ to_id: other, body })
+
+        .select("id,from_id,to_id,body,created_at")
+
+        .single();
+    }
+
+    const { data, error } = insertResult;
 
     if (error || !data) return fail(error ? describe(error) : GENERIC_ERROR);
 
@@ -1642,7 +1714,17 @@ export const socialActions = {
 
     if (!state.messages.some((m) => m.id === row.id)) {
       commit({
-        messages: [...state.messages, { id: row.id, threadId, fromId: meKey, text: row.body, at }],
+        messages: [
+          ...state.messages,
+          {
+            id: row.id,
+            threadId,
+            fromId: meKey,
+            text: row.body,
+            attachments: attachmentList(row.attachments),
+            at,
+          },
+        ],
 
         reads: { ...state.reads, [`${meKey}:${threadId}`]: at },
       });

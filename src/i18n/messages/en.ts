@@ -706,6 +706,22 @@ export const en = {
   "messages.selectConversation": "Select a conversation",
   "messages.chooseConversation":
     "Choose a conversation from the list, or start a new chat with someone by name or ID.",
+  "messages.photo": "Photo",
+  "messages.voiceNote": "Voice note",
+  "messages.video": "Video",
+  "messages.file": "File",
+  "messages.youPrefix": "You:",
+
+  "dm.attach": "Attach a file",
+  "dm.mic": "Record a voice note",
+  "dm.stop": "Stop",
+  "dm.cancel": "Discard",
+  "dm.recording": "Recording… {seconds}s",
+  "dm.uploading": "Uploading…",
+  "dm.fileTooLarge": "File is too large (max 25 MB).",
+  "dm.micDenied": "Microphone access was denied. Allow it in the browser and try again.",
+  "dm.micUnavailable": "Voice recording is not supported in this browser.",
+  "dm.removeAttachment": "Remove attachment",
 
   "resources.title": "Resources",
   "resources.description": "Discover and share useful resources with the community.",

@@ -715,6 +715,22 @@ export const fr: Record<MessageKey, string> = {
   "messages.selectConversation": "Sélectionnez une conversation",
   "messages.chooseConversation":
     "Choisissez une conversation dans la liste, ou démarrez une nouvelle discussion avec quelqu'un par nom ou ID.",
+  "messages.photo": "Photo",
+  "messages.voiceNote": "Note vocale",
+  "messages.video": "Vidéo",
+  "messages.file": "Fichier",
+  "messages.youPrefix": "Vous :",
+
+  "dm.attach": "Joindre un fichier",
+  "dm.mic": "Enregistrer une note vocale",
+  "dm.stop": "Arrêter",
+  "dm.cancel": "Annuler",
+  "dm.recording": "Enregistrement… {seconds}s",
+  "dm.uploading": "Envoi en cours…",
+  "dm.fileTooLarge": "Fichier trop volumineux (25 Mo max).",
+  "dm.micDenied": "Accès au micro refusé. Autorisez-le dans le navigateur puis réessayez.",
+  "dm.micUnavailable": "L'enregistrement vocal n'est pas pris en charge par ce navigateur.",
+  "dm.removeAttachment": "Retirer la pièce jointe",
 
   "resources.title": "Ressources",
   "resources.description": "Découvrez et partagez des ressources utiles avec la communauté.",
