@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { demoActions, useDemoState } from "@/lib/demo-store";
+import { useMe } from "@/lib/social-store";
 import type { Member, MyStatus, SpaceKind, SpaceSummary, SpaceView } from "@/server/spaces-store";
 
 export type { Member, MyStatus, SpaceKind, SpaceSummary, SpaceView };
@@ -31,14 +32,18 @@ function readGuestUid(): string {
 
 export function useIdentity(): { uid: string; name: string; signedIn: boolean; ready: boolean } {
   const { session, settings } = useDemoState();
+  const me = useMe(); // real signed-in profile from the social store (null while loading/guest)
   const guest = useSyncExternalStore(
     () => () => {},
     readGuestUid,
     () => "",
   );
-  const signedIn = !!session;
-  const uid = session ? `u-${session.email.toLowerCase()}` : guest;
-  return { uid, name: settings.displayName || session?.name || "Guest", signedIn, ready: !!uid };
+  // The real account wins: same uuid in every tab, same display name as the profile.
+  // Fallbacks keep guests working and cover stale demo settings saved earlier.
+  const uid = me ? `u-${me.id}` : session ? `u-${session.email.toLowerCase()}` : guest;
+  const name =
+    me?.displayName || session?.name || settings.displayName || me?.id?.slice(0, 8) || "Guest";
+  return { uid, name, signedIn: !!me || !!session, ready: !!uid };
 }
 
 export async function api<T>(url: string, init?: RequestInit): Promise<{ ok: boolean; data: T }> {

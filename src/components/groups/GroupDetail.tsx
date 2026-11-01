@@ -35,6 +35,10 @@ type GroupMessage = {
 
 type MemberRole = "owner" | "admin" | "member";
 
+/** Supabase errors lose their message when thrown around — always surface a real text. */
+const errText = (err: unknown, fallback: string): string =>
+  err instanceof Error && err.message ? err.message : fallback;
+
 export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?: string }) {
   const router = useRouter();
   const t = useT();
@@ -161,7 +165,7 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
       await loadMessages(currentGroup.id);
     } catch (err) {
       console.error("Error loading group:", err);
-      setError(err instanceof Error ? err.message : t("groupDetail.notFoundDesc"));
+      setError(errText(err, t("groupDetail.notFoundDesc")));
     } finally {
       setLoading(false);
     }
@@ -233,7 +237,7 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
         },
         () => {
           void loadMessages(group.id).catch((err: unknown) => {
-            setError(err instanceof Error ? err.message : t("groupDetail.postError"));
+            setError(errText(err, t("groupDetail.postError")));
           });
         },
       )
@@ -273,24 +277,40 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
 
       const { data: authData, error: authError } = await supabase.auth.getUser();
 
-      if (authError) throw authError;
+      if (authError) throw new Error(authError.message);
       if (!authData.user) {
         throw new Error(t("group.signInToJoin"));
       }
 
+      // Preferred path: security-definer RPC (works no matter how RLS is configured).
+      const { data: rpcData, error: rpcError } = await supabase.rpc("join_space", {
+        p_space: group.id,
+      });
+
+      if (!rpcError && rpcData) {
+        const result = rpcData as { ok?: boolean; error?: string; outcome?: string };
+        if (result.ok === false) throw new Error(result.error || t("groupDetail.joinError"));
+        setNotice(
+          result.outcome === "requested" ? t("group.joinRequested") : t("groupDetail.joined"),
+        );
+        await loadGroup();
+        return;
+      }
+
+      // Older database without the RPC: direct insert.
       const { error: joinError } = await supabase.from("space_members").insert({
         space_id: group.id,
         user_id: authData.user.id,
         role: "member",
       });
 
-      if (joinError) throw joinError;
+      if (joinError) throw new Error(joinError.message);
 
       setNotice(t("groupDetail.joined"));
       await loadGroup();
     } catch (err) {
       console.error("Error joining group:", err);
-      setError(err instanceof Error ? err.message : t("groupDetail.joinError"));
+      setError(errText(err, t("groupDetail.joinError")));
     } finally {
       setBusy(false);
     }
@@ -340,7 +360,7 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
       await loadMessages(group.id);
     } catch (err) {
       console.error("Error posting message:", err);
-      setError(err instanceof Error ? err.message : t("groupDetail.postError"));
+      setError(errText(err, t("groupDetail.postError")));
     } finally {
       setBusy(false);
     }

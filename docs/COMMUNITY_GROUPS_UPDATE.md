@@ -83,3 +83,12 @@ language they picked (en / fr / ar).
 
 Also: removed the duplicated share box that round 2 added next to the voice-room
 panel — the panel itself already had one.
+
+## Round 4: bug fixes
+
+| Problem | Fix |
+| --- | --- |
+| «تعذر الانضمام للمجموعة» (`Error joining group: {}`) | New `supabase/migrations/20261102000003_space_join.sql`: security-definer RPC `join_space(uuid)` + self-insert policy. Client calls the RPC first, falls back to the direct insert, and now surfaces the real database message instead of `{}`. **Run this SQL in Supabase.** |
+| Mixed English on Arabic screens (Public, Open community, 2 members, Pending) | `CommunityCard.tsx` fully translated via the catalog; fixed categories (Study/Project/...) translated too. |
+| Invite panel pushed the feed down | The invite/share panel is now a button in the community header (staff only) that opens a dialog. |
+| Room shows "Sam Rivera" instead of the account name | `useIdentity` now uses the signed-in profile (uuid + display name) first; demo settings only fill gaps. |

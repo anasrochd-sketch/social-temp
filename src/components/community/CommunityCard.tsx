@@ -12,9 +12,20 @@ import { Button, buttonStyles } from "@/components/ui/Button";
 
 import { Card } from "@/components/ui/Card";
 
-import { pluralize } from "@/lib/utils";
+import { useT } from "@/i18n/client";
+import type { MessageKey } from "@/i18n/translate";
 
 import type { Community, CommunityRole } from "@/types/social";
+
+/** Fixed category list -> catalog keys, so the badge follows the interface language. */
+export const CATEGORY_LABEL_KEYS: Record<string, MessageKey> = {
+  Study: "community.cat.study",
+  Project: "community.cat.project",
+  Coding: "community.cat.coding",
+  Design: "community.cat.design",
+  Languages: "community.cat.languages",
+  Other: "community.cat.other",
+};
 
 interface CommunityCardProps {
   community: Community;
@@ -41,6 +52,7 @@ export function CommunityCard({
   onJoin,
   pending = false,
 }: CommunityCardProps) {
+  const t = useT();
   const isPrivate = community.visibility === "private";
 
   return (
@@ -49,7 +61,11 @@ export function CommunityCard({
 
       <div className="flex flex-1 flex-col p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Badge tone="soft">{community.category}</Badge>
+          <Badge tone="soft">
+            {community.category
+              ? t(CATEGORY_LABEL_KEYS[community.category] ?? "community.cat.other")
+              : community.category}
+          </Badge>
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-cova-line bg-slate-50 px-2.5 py-1 text-xs font-medium text-cova-mute">
@@ -59,7 +75,7 @@ export function CommunityCard({
                 <Globe className="h-3.5 w-3.5" aria-hidden="true" />
               )}
 
-              {isPrivate ? "Private" : "Public"}
+              {isPrivate ? t("community.private") : t("community.public")}
             </span>
 
             {role && <RoleBadge role={role} />}
@@ -90,13 +106,13 @@ export function CommunityCard({
               <Users className="h-4 w-4" aria-hidden="true" />
             </span>
 
-            {pluralize(members, "member", "members")}
+            {t("community.membersCount", { n: members })}
           </p>
 
           {pending && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700">
               <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              Pending
+              {t("community.pending")}
             </span>
           )}
         </div>
@@ -105,7 +121,7 @@ export function CommunityCard({
           {pending ? (
             <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
               <Clock className="mr-2 inline h-4 w-4" aria-hidden="true" />
-              Waiting for approval
+              {t("community.waitingApproval")}
             </p>
           ) : role ? (
             <Link
@@ -113,13 +129,13 @@ export function CommunityCard({
 
               className={`${buttonStyles({ variant: "secondary", size: "sm" })} flex w-full items-center justify-center rounded-xl transition-colors`}
             >
-              Open community
+              {t("community.openCommunity")}
             </Link>
           ) : (
             <div className="flex gap-2">
               {onJoin && !isPrivate && (
                 <Button size="sm" onClick={onJoin}>
-                  Join
+                  {t("community.joinAction")}
                 </Button>
               )}
 
@@ -128,7 +144,7 @@ export function CommunityCard({
 
                 className={`${buttonStyles({ variant: "secondary", size: "sm" })} flex flex-1 items-center justify-center rounded-xl transition-colors`}
               >
-                View community
+                {t("community.viewCommunity")}
               </Link>
             </div>
           )}

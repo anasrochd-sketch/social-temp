@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, Globe, Lock, SearchX, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Globe, Lock, SearchX, Trash2, UserPlus, Users } from "lucide-react";
 import { MediaComposer } from "@/components/common/MediaComposer";
 import { PostAttachments } from "@/components/common/PostAttachments";
 import { SharePanel } from "@/components/common/SharePanel";
@@ -20,6 +20,7 @@ import { Button, buttonStyles } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TextField } from "@/components/ui/FormField";
+import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
@@ -155,6 +156,7 @@ export function CommunityDetail({
   const [tab, setTab] = useState<TabName>("Feed");
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<PostAttachment[]>([]);
+  const [inviting, setInviting] = useState(false);
   // Private communities you aren't in can't be read, so ask the server whether the id is one.
   const [probed, setProbed] = useState(false);
 
@@ -288,6 +290,16 @@ export function CommunityDetail({
             </p>
           </div>
           <div className="flex gap-2">
+            {staff && (
+              <Button
+                variant="secondary"
+                onClick={() => setInviting(true)}
+                aria-label={t("community.invite")}
+              >
+                <UserPlus className="h-4 w-4" aria-hidden="true" />
+                {t("community.invite")}
+              </Button>
+            )}
             {!role && (
               <Button
                 onClick={async () => {
@@ -319,7 +331,11 @@ export function CommunityDetail({
       </Card>
 
       {staff && (
-        <div className="mt-4">
+        <Modal
+          open={inviting}
+          onClose={() => setInviting(false)}
+          title={t("community.invite")}
+        >
           <SharePanel
             title={community.name}
             spaceId={community.id}
@@ -327,7 +343,7 @@ export function CommunityDetail({
             path={`/community/${community.id}`}
             canRegenerate={role === "owner"}
           />
-        </div>
+        </Modal>
       )}
 
       <div className="mt-6">
