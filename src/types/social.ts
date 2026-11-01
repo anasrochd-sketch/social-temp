@@ -45,6 +45,8 @@ export type CommunityVisibility = "public" | "private";
 /** Who may publish posts: every member, owner and admins, or the owner alone. */
 export type PostingPolicy = "everyone" | "admins" | "owner";
 export type CommunityRole = "owner" | "admin" | "member";
+/** UI language a community belongs to. Empty string = legacy community (shown in every language). */
+export type CommunityLocale = "en" | "fr" | "ar" | "";
 
 export interface Community {
   id: string;
@@ -54,6 +56,8 @@ export interface Community {
   visibility: CommunityVisibility;
   postingPolicy: PostingPolicy;
   hideMembers: boolean;
+  /** Language this community belongs to ("" = shown in every language). */
+  locale: CommunityLocale;
   /**
    * Invite code. Private communities are joined by code or link, then approved by an admin.
    * Only the owner and admins receive it; everyone else sees "".
@@ -77,11 +81,21 @@ export interface JoinRequest {
   createdAt: number;
 }
 
+/** One media file attached to a post (image, video, voice note or any file). */
+export interface PostAttachment {
+  kind: "image" | "video" | "audio" | "file";
+  url: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
 export interface CommunityPost {
   id: string;
   communityId: string;
   authorId: string;
   text: string;
+  attachments: PostAttachment[];
   at: number;
 }
 

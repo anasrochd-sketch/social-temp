@@ -1,15 +1,17 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Users, RefreshCw, LockKeyhole, Globe } from "lucide-react";
+import { ChoiceGroup } from "@/components/community/ChoiceGroup";
 import { getSupabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { useT } from "@/i18n/client";
+import type { MessageKey } from "@/i18n/translate";
 
-type Community = {
+type Group = {
   id: string;
   name: string;
   description: string;
@@ -18,10 +20,24 @@ type Community = {
   created_at: string;
 };
 
-export function GroupsBrowser() {
-  const router = useRouter();
+type PostPolicy = "members" | "admins" | "owner";
 
-  const [groups, setGroups] = useState<Community[]>([]);
+/** Group posting policies stored in spaces.post_policy. */
+const GROUP_POLICY_CHOICES: readonly {
+  value: PostPolicy;
+  labelKey: MessageKey;
+  descKey: MessageKey;
+}[] = [
+  { value: "members", labelKey: "community.everyone", descKey: "community.everyoneHint" },
+  { value: "admins", labelKey: "community.ownerAdmins", descKey: "community.ownerAdminsHint" },
+  { value: "owner", labelKey: "community.ownerOnly", descKey: "community.ownerOnlyHint" },
+];
+
+export function GroupsBrowser({ initialJoinCode = "" }: { initialJoinCode?: string }) {
+  const router = useRouter();
+  const t = useT();
+
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -31,11 +47,17 @@ export function GroupsBrowser() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("General");
-  const [visibility, setVisibility] =
-    useState<"public" | "private">("public");
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [postPolicy, setPostPolicy] = useState<PostPolicy>("members");
 
-  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCode, setInviteCode] = useState(initialJoinCode.toUpperCase());
   const [joining, setJoining] = useState(false);
+
+  const policyChoices = GROUP_POLICY_CHOICES.map((c) => ({
+    value: c.value,
+    label: t(c.labelKey),
+    description: t(c.descKey),
+  }));
 
   // Charger les groupes depuis la bonne table : spaces
   const loadGroups = useCallback(async () => {
@@ -45,54 +67,44 @@ export function GroupsBrowser() {
     try {
       const supabase = getSupabase();
 
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
       if (authError) throw authError;
 
       if (!authData.user) {
         setGroups([]);
-        setError("Please sign in to view and create groups.");
+        setError(t("group.signIn"));
         return;
       }
 
       const { data, error: queryError } = await supabase
         .from("spaces")
-        .select(
-          "id, name, description, category, visibility, created_at"
-        )
+        .select("id, name, description, category, visibility, created_at")
         .eq("kind", "group")
         .eq("visibility", "public")
         .order("created_at", { ascending: false });
 
       if (queryError) throw queryError;
 
-      setGroups((data ?? []) as Community[]);
+      setGroups((data ?? []) as Group[]);
     } catch (err) {
       console.error("Error loading groups:", err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not load groups. Check your Supabase configuration and database policies."
-      );
+      setError(err instanceof Error ? err.message : t("group.loadError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
- useEffect(() => {
-  const frame = requestAnimationFrame(() => {
-    void loadGroups();
-  });
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      void loadGroups();
+    });
 
-  return () => cancelAnimationFrame(frame);
-}, [loadGroups]);
+    return () => cancelAnimationFrame(frame);
+  }, [loadGroups]);
 
   // Créer un groupe dans spaces
-  const createGroup = async (
-    event: React.FormEvent<HTMLFormElement>
-  ) => {
+  const createGroup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
     setError("");
@@ -101,13 +113,12 @@ export function GroupsBrowser() {
     try {
       const supabase = getSupabase();
 
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
       if (authError) throw authError;
 
       if (!authData.user) {
-        setError("Please sign in before creating a group.");
+        setError(t("group.signIn"));
         return;
       }
 
@@ -115,19 +126,12 @@ export function GroupsBrowser() {
       const cleanDescription = description.trim();
 
       if (cleanName.length < 3 || cleanName.length > 60) {
-        setError(
-          "Group name must contain between 3 and 60 characters."
-        );
+        setError(t("group.nameLength"));
         return;
       }
 
-      if (
-        cleanDescription.length < 10 ||
-        cleanDescription.length > 500
-      ) {
-        setError(
-          "Description must contain between 10 and 500 characters."
-        );
+      if (cleanDescription.length < 10 || cleanDescription.length > 500) {
+        setError(t("group.descLength"));
         return;
       }
 
@@ -139,7 +143,7 @@ export function GroupsBrowser() {
           description: cleanDescription,
           category,
           visibility,
-          post_policy: "members",
+          post_policy: postPolicy,
           owner_id: authData.user.id,
         })
         .select("id")
@@ -147,12 +151,13 @@ export function GroupsBrowser() {
 
       if (insertError) throw insertError;
 
-      setNotice("Group created successfully.");
+      setNotice(t("group.created"));
       setShowCreate(false);
       setName("");
       setDescription("");
       setCategory("General");
       setVisibility("public");
+      setPostPolicy("members");
 
       await loadGroups();
 
@@ -160,12 +165,7 @@ export function GroupsBrowser() {
       router.push(`/groups/${newGroup.id}`);
     } catch (err) {
       console.error("Error creating group:", err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not create the group. Please try again."
-      );
+      setError(err instanceof Error ? err.message : t("group.createError"));
     } finally {
       setBusy(false);
     }
@@ -173,9 +173,7 @@ export function GroupsBrowser() {
 
   // Rejoindre un groupe avec un code d'invitation.
   // Cette fonction nécessite la RPC join_by_code dans Supabase.
-  const joinGroup = async (
-    event: React.FormEvent<HTMLFormElement>
-  ) => {
+  const joinGroup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setJoining(true);
     setError("");
@@ -184,27 +182,23 @@ export function GroupsBrowser() {
     try {
       const supabase = getSupabase();
 
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
       if (authError) throw authError;
 
       if (!authData.user) {
-        setError("Please sign in before joining a group.");
+        setError(t("group.signInToJoin"));
         return;
       }
 
       const code = inviteCode.trim().toUpperCase();
 
       if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) {
-        setError("Enter a valid 8-character group invite code.");
+        setError(t("group.codeInvalid"));
         return;
       }
 
-      const { data, error: joinError } = await supabase.rpc(
-        "join_by_code",
-        { p_code: code }
-      );
+      const { data, error: joinError } = await supabase.rpc("join_by_code", { p_code: code });
 
       if (joinError) throw joinError;
 
@@ -214,15 +208,15 @@ export function GroupsBrowser() {
       } | null;
 
       if (!result?.communityId) {
-        throw new Error("The server did not return a group ID.");
+        throw new Error(t("group.noGroupId"));
       }
 
       setNotice(
         result.outcome === "requested"
-          ? "Your request to join the private group has been sent."
+          ? t("group.joinRequested")
           : result.outcome === "already-member"
-            ? "You are already a member of this group."
-            : "You joined the group successfully."
+            ? t("group.alreadyMember")
+            : t("group.joined"),
       );
 
       setInviteCode("");
@@ -233,12 +227,7 @@ export function GroupsBrowser() {
       }
     } catch (err) {
       console.error("Error joining group:", err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not join this group. Check the invite code and try again."
-      );
+      setError(err instanceof Error ? err.message : t("group.joinError"));
     } finally {
       setJoining(false);
     }
@@ -248,22 +237,14 @@ export function GroupsBrowser() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">
-            Groups &amp; Community
-          </h1>
-          <p className="mt-1 text-sm text-cova-mute">
-            Discover communities, create a group, and chat with members.
-          </p>
+          <h1 className="text-2xl font-bold">{t("group.title")}</h1>
+          <p className="mt-1 text-sm text-cova-mute">{t("group.subtitle")}</p>
         </div>
 
         <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => void loadGroups()}
-            disabled={loading}
-          >
+          <Button variant="secondary" onClick={() => void loadGroups()} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {t("group.refresh")}
           </Button>
 
           <Button
@@ -273,25 +254,19 @@ export function GroupsBrowser() {
             }}
           >
             <Plus className="h-4 w-4" />
-            Create group
+            {t("group.create")}
           </Button>
         </div>
       </div>
 
       {error && (
-        <p
-          role="alert"
-          className="rounded-lg border border-red-300 p-3 text-sm text-red-700"
-        >
+        <p role="alert" className="rounded-lg border border-red-300 p-3 text-sm text-red-700">
           {error}
         </p>
       )}
 
       {notice && (
-        <p
-          role="status"
-          className="rounded-lg border border-green-300 p-3 text-sm text-green-700"
-        >
+        <p role="status" className="rounded-lg border border-green-300 p-3 text-sm text-green-700">
           {notice}
         </p>
       )}
@@ -300,18 +275,16 @@ export function GroupsBrowser() {
         <form onSubmit={joinGroup} className="flex flex-wrap gap-2">
           <input
             value={inviteCode}
-            onChange={(event) =>
-              setInviteCode(event.target.value.toUpperCase())
-            }
+            onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
             maxLength={8}
             required
-            aria-label="Group invitation code"
-            placeholder="Enter 8-character invite code"
+            aria-label={t("group.inviteLabel")}
+            placeholder={t("group.invitePlaceholder")}
             className="h-10 min-w-0 flex-1 rounded-lg border border-cova-line px-3 text-sm"
           />
 
           <Button type="submit" disabled={joining}>
-            {joining ? "Joining..." : "Join with code"}
+            {joining ? t("group.joining") : t("group.joinWithCode")}
           </Button>
         </form>
       </Card>
@@ -319,12 +292,10 @@ export function GroupsBrowser() {
       {showCreate && (
         <Card className="p-5">
           <form onSubmit={createGroup} className="space-y-4">
-            <h2 className="text-lg font-semibold">
-              Create a new group
-            </h2>
+            <h2 className="text-lg font-semibold">{t("group.newGroup")}</h2>
 
             <label className="block space-y-1 text-sm">
-              <span>Group name</span>
+              <span>{t("group.name")}</span>
               <input
                 required
                 minLength={3}
@@ -332,28 +303,26 @@ export function GroupsBrowser() {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 className="w-full rounded-lg border border-cova-line px-3 py-2"
-                placeholder="e.g. English learners"
+                placeholder={t("group.namePlaceholder")}
               />
             </label>
 
             <label className="block space-y-1 text-sm">
-              <span>Description</span>
+              <span>{t("group.description")}</span>
               <textarea
                 required
                 minLength={10}
                 maxLength={500}
                 rows={3}
                 value={description}
-                onChange={(event) =>
-                  setDescription(event.target.value)
-                }
+                onChange={(event) => setDescription(event.target.value)}
                 className="w-full rounded-lg border border-cova-line px-3 py-2"
-                placeholder="What is this group about?"
+                placeholder={t("group.descriptionPlaceholder")}
               />
             </label>
 
             <label className="block space-y-1 text-sm">
-              <span>Category</span>
+              <span>{t("community.category")}</span>
               <select
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
@@ -368,24 +337,27 @@ export function GroupsBrowser() {
             </label>
 
             <label className="block space-y-1 text-sm">
-              <span>Visibility</span>
+              <span>{t("community.visibility")}</span>
               <select
                 value={visibility}
-                onChange={(event) =>
-                  setVisibility(
-                    event.target.value as "public" | "private"
-                  )
-                }
+                onChange={(event) => setVisibility(event.target.value as "public" | "private")}
                 className="w-full rounded-lg border border-cova-line px-3 py-2"
               >
-                <option value="public">Public</option>
-                <option value="private">Private</option>
+                <option value="public">{t("community.public")}</option>
+                <option value="private">{t("community.private")}</option>
               </select>
             </label>
 
+            <ChoiceGroup
+              legend={t("group.postingQuestion")}
+              value={postPolicy}
+              onChange={setPostPolicy}
+              choices={policyChoices}
+            />
+
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={busy}>
-                {busy ? "Creating..." : "Create group"}
+                {busy ? t("group.creating") : t("group.create")}
               </Button>
 
               <Button
@@ -394,7 +366,7 @@ export function GroupsBrowser() {
                 onClick={() => setShowCreate(false)}
                 disabled={busy}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>
@@ -402,45 +374,30 @@ export function GroupsBrowser() {
       )}
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-cova-mute">
-          Loading groups...
-        </p>
+        <p className="py-8 text-center text-sm text-cova-mute">{t("group.loading")}</p>
       ) : groups.length === 0 ? (
         <Card className="p-8 text-center">
           <Users className="mx-auto mb-3 h-8 w-8 text-cova-mute" />
-          <h2 className="font-semibold">No public groups yet</h2>
-          <p className="mt-1 text-sm text-cova-mute">
-            Create the first group or come back later.
-          </p>
+          <h2 className="font-semibold">{t("group.emptyTitle")}</h2>
+          <p className="mt-1 text-sm text-cova-mute">{t("group.emptyDesc")}</p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {groups.map((group) => (
-            <Card
-              key={group.id}
-              className="flex flex-col gap-3 p-5"
-            >
+            <Card key={group.id} className="flex flex-col gap-3 p-5">
               <div className="flex items-center justify-between gap-2">
                 <span className="rounded-full bg-cova-pale px-3 py-1 text-xs">
                   {group.category || "General"}
                 </span>
 
                 {group.visibility === "private" ? (
-                  <LockKeyhole
-                    className="h-4 w-4"
-                    aria-label="Private group"
-                  />
+                  <LockKeyhole className="h-4 w-4" aria-label={t("community.private")} />
                 ) : (
-                  <Globe
-                    className="h-4 w-4"
-                    aria-label="Public group"
-                  />
+                  <Globe className="h-4 w-4" aria-label={t("community.public")} />
                 )}
               </div>
 
-              <h2 className="text-lg font-semibold">
-                {group.name}
-              </h2>
+              <h2 className="text-lg font-semibold">{group.name}</h2>
 
               <p className="flex-1 whitespace-pre-wrap break-words text-sm text-cova-mute">
                 {group.description}
@@ -450,7 +407,7 @@ export function GroupsBrowser() {
                 href={`/groups/${group.id}`}
                 className="inline-flex min-h-10 items-center justify-center rounded-lg border border-cova-line px-4 text-sm font-medium hover:bg-cova-pale"
               >
-                Open group
+                {t("group.open")}
               </Link>
             </Card>
           ))}

@@ -5,16 +5,17 @@ import { getT } from "@/i18n/server";
 
 export const metadata: Metadata = { title: "Community" };
 
-export default async function CommunityPage() {
-  const t = await getT();
+export default async function CommunityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ join?: string }>;
+}) {
+  const [t, { join }] = await Promise.all([getT(), searchParams]);
 
   return (
     <>
-      <PageHeader
-        title={t("page.community.title")}
-        description={t("page.community.description")}
-      />
-      <CommunityBrowser />
+      <PageHeader title={t("page.community.title")} description={t("page.community.description")} />
+      <CommunityBrowser initialJoinCode={join ?? ""} />
     </>
   );
 }

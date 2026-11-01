@@ -16,7 +16,12 @@ interface ChoiceGroupProps<T extends string> {
   choices: readonly Choice<T>[];
 }
 
-export function ChoiceGroup<T extends string>({ legend, value, onChange, choices }: ChoiceGroupProps<T>) {
+export function ChoiceGroup<T extends string>({
+  legend,
+  value,
+  onChange,
+  choices,
+}: ChoiceGroupProps<T>) {
   const name = useId();
   return (
     <fieldset className="space-y-2">
@@ -42,7 +47,9 @@ export function ChoiceGroup<T extends string>({ legend, value, onChange, choices
               />
               <span>
                 <span className="block font-medium">{c.label}</span>
-                {c.description && <span className="block text-xs text-cova-mute">{c.description}</span>}
+                {c.description && (
+                  <span className="block text-xs text-cova-mute">{c.description}</span>
+                )}
               </span>
             </label>
           );

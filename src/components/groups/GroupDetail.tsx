@@ -1,14 +1,18 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DoorClosed, Send, Users } from "lucide-react";
+import { MediaComposer } from "@/components/common/MediaComposer";
+import { PostAttachments } from "@/components/common/PostAttachments";
+import { SharePanel } from "@/components/common/SharePanel";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useT } from "@/i18n/client";
 import { getSupabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import type { PostAttachment } from "@/types/social";
 
 type Group = {
   id: string;
@@ -25,6 +29,7 @@ type GroupMessage = {
   space_id: string;
   author_id: string;
   body: string;
+  attachments?: PostAttachment[] | null;
   created_at: string;
 };
 
@@ -32,12 +37,15 @@ type MemberRole = "owner" | "admin" | "member";
 
 export function GroupDetail({ code }: { code: string }) {
   const router = useRouter();
+  const t = useT();
 
   const [userId, setUserId] = useState("");
   const [group, setGroup] = useState<Group | null>(null);
   const [role, setRole] = useState<MemberRole | null>(null);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<PostAttachment[]>([]);
+  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -49,11 +57,21 @@ export function GroupDetail({ code }: { code: string }) {
 
     const { data, error: queryError } = await supabase
       .from("space_posts")
-      .select("id,space_id,author_id,body,created_at")
+      .select("id,space_id,author_id,body,attachments,created_at")
       .eq("space_id", spaceId)
       .order("created_at", { ascending: true });
 
-    if (queryError) throw queryError;
+    if (queryError) {
+      // Older databases have no attachments column yet: retry without it.
+      const fallback = await supabase
+        .from("space_posts")
+        .select("id,space_id,author_id,body,created_at")
+        .eq("space_id", spaceId)
+        .order("created_at", { ascending: true });
+      if (fallback.error) throw fallback.error;
+      setMessages((fallback.data ?? []) as GroupMessage[]);
+      return;
+    }
 
     setMessages((data ?? []) as GroupMessage[]);
   }, []);
@@ -66,8 +84,7 @@ export function GroupDetail({ code }: { code: string }) {
     try {
       const supabase = getSupabase();
 
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
       if (authError) throw authError;
 
@@ -76,7 +93,7 @@ export function GroupDetail({ code }: { code: string }) {
         setGroup(null);
         setRole(null);
         setMessages([]);
-        setError("Please sign in to access groups.");
+        setError(t("groupDetail.signIn"));
         return;
       }
 
@@ -85,9 +102,7 @@ export function GroupDetail({ code }: { code: string }) {
 
       const { data: groupData, error: groupError } = await supabase
         .from("spaces")
-        .select(
-          "id,name,description,category,visibility,post_policy,owner_id"
-        )
+        .select("id,name,description,category,visibility,post_policy,owner_id")
         .eq("id", code)
         .eq("kind", "group")
         .maybeSingle();
@@ -98,22 +113,19 @@ export function GroupDetail({ code }: { code: string }) {
         setGroup(null);
         setRole(null);
         setMessages([]);
-        setError(
-          "Group not found, or you do not have permission to view it."
-        );
+        setError(t("groupDetail.notFoundDesc"));
         return;
       }
 
       const currentGroup = groupData as Group;
       setGroup(currentGroup);
 
-      const { data: membership, error: membershipError } =
-        await supabase
-          .from("space_members")
-          .select("role")
-          .eq("space_id", currentGroup.id)
-          .eq("user_id", currentUserId)
-          .maybeSingle();
+      const { data: membership, error: membershipError } = await supabase
+        .from("space_members")
+        .select("role")
+        .eq("space_id", currentGroup.id)
+        .eq("user_id", currentUserId)
+        .maybeSingle();
 
       if (membershipError) throw membershipError;
 
@@ -130,6 +142,17 @@ export function GroupDetail({ code }: { code: string }) {
 
       setRole(memberRole);
 
+      // Staff can also see the invite code to share it.
+      if (memberRole === "owner" || memberRole === "admin") {
+        const { data: codeRow } = await supabase
+          .from("join_codes")
+          .select("code")
+          .eq("kind", "space")
+          .eq("target_id", currentGroup.id)
+          .maybeSingle();
+        setInviteCode(codeRow?.code ?? "");
+      }
+
       if (!memberRole) {
         setMessages([]);
         return;
@@ -138,23 +161,20 @@ export function GroupDetail({ code }: { code: string }) {
       await loadMessages(currentGroup.id);
     } catch (err) {
       console.error("Error loading group:", err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not load the group."
-      );
+      setError(err instanceof Error ? err.message : t("groupDetail.notFoundDesc"));
     } finally {
       setLoading(false);
     }
-  }, [code, loadMessages]);
+  }, [code, loadMessages, t]);
 
   useEffect(() => {
-  const frame = requestAnimationFrame(() => {
-    void loadGroup();
-  });
+    const frame = requestAnimationFrame(() => {
+      void loadGroup();
+    });
 
-  return () => cancelAnimationFrame(frame);
-}, [loadGroup]);
+    return () => cancelAnimationFrame(frame);
+  }, [loadGroup]);
+
   // Actualiser les publications en temps réel
   useEffect(() => {
     if (!group || !role) return;
@@ -173,28 +193,25 @@ export function GroupDetail({ code }: { code: string }) {
         },
         () => {
           void loadMessages(group.id).catch((err: unknown) => {
-            setError(
-              err instanceof Error
-                ? err.message
-                : "Could not refresh group posts."
-            );
+            setError(err instanceof Error ? err.message : t("groupDetail.postError"));
           });
-        }
+        },
       )
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [group, role, loadMessages]);
+  }, [group, role, loadMessages, t]);
 
   const isStaff = role === "owner" || role === "admin";
 
+  // "members" (legacy) and "everyone" both mean every member can post.
   const canPost =
     !!role &&
-    (group?.post_policy === "members"
+    (group?.post_policy === "members" || group?.post_policy === "everyone"
       ? true
-      : group?.post_policy === "admins"
+      : group?.post_policy === "admins" || group?.post_policy === "admins_only"
         ? isStaff
         : role === "owner");
 
@@ -208,55 +225,44 @@ export function GroupDetail({ code }: { code: string }) {
 
     try {
       if (group.visibility !== "public") {
-        setError(
-          "This group is private. Use its invitation process to request access."
-        );
+        setError(t("groupDetail.joinPrivateError"));
         return;
       }
 
       const supabase = getSupabase();
 
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
       if (authError) throw authError;
       if (!authData.user) {
-        throw new Error("Please sign in before joining a group.");
+        throw new Error(t("group.signInToJoin"));
       }
 
-      const { error: joinError } = await supabase
-        .from("space_members")
-        .insert({
-          space_id: group.id,
-          user_id: authData.user.id,
-          role: "member",
-        });
+      const { error: joinError } = await supabase.from("space_members").insert({
+        space_id: group.id,
+        user_id: authData.user.id,
+        role: "member",
+      });
 
       if (joinError) throw joinError;
 
-      setNotice("You joined the group.");
+      setNotice(t("groupDetail.joined"));
       await loadGroup();
     } catch (err) {
       console.error("Error joining group:", err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not join the group."
-      );
+      setError(err instanceof Error ? err.message : t("groupDetail.joinError"));
     } finally {
       setBusy(false);
     }
   };
 
   // Publier un message dans space_posts
-  const submitMessage = async (
-    event: React.FormEvent<HTMLFormElement>
-  ) => {
+  const submitMessage = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const body = text.trim();
 
-    if (!group || !body || !canPost || busy) return;
+    if (!group || (!body && attachments.length === 0) || !canPost || busy) return;
 
     setBusy(true);
     setError("");
@@ -265,127 +271,117 @@ export function GroupDetail({ code }: { code: string }) {
     try {
       const supabase = getSupabase();
 
-      const { error: insertError } = await supabase
-        .from("space_posts")
-        .insert({
-          space_id: group.id,
-          author_id: userId,
-          body,
-        });
+      const payload: Record<string, unknown> = {
+        space_id: group.id,
+        author_id: userId,
+        body,
+      };
+      if (attachments.length > 0) payload.attachments = attachments;
 
-      if (insertError) throw insertError;
+      const { error: insertError } = await supabase.from("space_posts").insert(payload);
+
+      if (insertError) {
+        // Retry without media when the database does not have the column yet.
+        if (attachments.length > 0) {
+          const { error: retryError } = await supabase
+            .from("space_posts")
+            .insert({ space_id: group.id, author_id: userId, body });
+          if (retryError) throw insertError;
+          setError(
+            "Media storage is not active yet. Ask the project owner to run the SQL setup (see docs/COMMUNITY_GROUPS_UPDATE.md).",
+          );
+        } else {
+          throw insertError;
+        }
+      }
 
       setText("");
+      setAttachments([]);
       await loadMessages(group.id);
     } catch (err) {
       console.error("Error posting message:", err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not publish the message. Check your membership and permissions."
-      );
+      setError(err instanceof Error ? err.message : t("groupDetail.postError"));
     } finally {
       setBusy(false);
     }
   };
 
   if (loading) {
-    return (
-      <p className="py-12 text-center text-sm text-cova-mute">
-        Loading group...
-      </p>
-    );
+    return <p className="py-12 text-center text-sm text-cova-mute">{t("groupDetail.loading")}</p>;
   }
 
   if (!group) {
     return (
       <EmptyState
         icon={DoorClosed}
-        title="Group unavailable"
-        description={error || "Could not load the group."}
-        action={
-          <Button onClick={() => router.push("/groups")}>
-            Back to groups
-          </Button>
-        }
+        title={t("groupDetail.notFound")}
+        description={error || t("groupDetail.notFoundDesc")}
+        action={<Button onClick={() => router.push("/groups")}>{t("groupDetail.back")}</Button>}
       />
     );
   }
+
+  const roleLabel =
+    role === "owner"
+      ? t("community.roleOwner")
+      : role === "admin"
+        ? t("community.roleAdmin")
+        : role === "member"
+          ? t("community.roleMember")
+          : t("groupDetail.notMember");
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
       <div className="min-w-0">
         <div className="mb-3">
-          <h1 className="truncate text-xl font-semibold">
-            {group.name}
-          </h1>
+          <h1 className="truncate text-xl font-semibold">{group.name}</h1>
 
-          {group.description && (
-            <p className="text-sm text-cova-mute">
-              {group.description}
-            </p>
-          )}
+          {group.description && <p className="text-sm text-cova-mute">{group.description}</p>}
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-cova-mute">
             <span className="inline-flex items-center gap-1">
               <Users className="h-3.5 w-3.5" aria-hidden="true" />
-              {group.visibility === "public"
-                ? "Public group"
-                : "Private group"}
+              {group.visibility === "public" ? t("community.public") : t("community.private")}
             </span>
 
-            {group.category && (
-              <span>· {group.category}</span>
-            )}
+            {group.category && <span>· {group.category}</span>}
           </div>
         </div>
 
         {error && (
-          <p
-            role="alert"
-            className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700"
-          >
+          <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
             {error}
           </p>
         )}
 
         {notice && (
-          <p
-            role="status"
-            className="mb-3 rounded-lg bg-cova-pale p-3 text-sm"
-          >
+          <p role="status" className="mb-3 rounded-lg bg-cova-pale p-3 text-sm">
             {notice}
           </p>
         )}
 
         {!role ? (
           <Card className="space-y-3 p-5">
-            <h2 className="font-semibold">Join this group</h2>
+            <h2 className="font-semibold">{t("groupDetail.joinTitle")}</h2>
 
             <p className="text-sm text-cova-mute">
               {group.visibility === "public"
-                ? "Join to read and publish messages."
-                : "This group is private. You need permission to access it."}
+                ? t("groupDetail.joinPublicHint")
+                : t("groupDetail.joinPrivateHint")}
             </p>
 
             {group.visibility === "public" && (
-              <Button
-                onClick={() => void joinGroup()}
-                disabled={busy}
-              >
-                {busy ? "Joining..." : "Join group"}
+              <Button onClick={() => void joinGroup()} disabled={busy}>
+                {busy ? t("group.joining") : t("groupDetail.join")}
               </Button>
             )}
           </Card>
         ) : (
           <Card className="flex h-[30rem] flex-col sm:h-[36rem]">
-            <div
-              className="flex-1 space-y-3 overflow-y-auto p-4"
-              aria-live="polite"
-            >
+            <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
               {messages.length === 0 && (
                 <p className="py-10 text-center text-sm text-cova-mute">
-                  No messages yet. Start the conversation.
+                  {t("groupDetail.noMessages")}
                 </p>
               )}
 
@@ -395,32 +391,30 @@ export function GroupDetail({ code }: { code: string }) {
                 return (
                   <div
                     key={message.id}
-                    className={cn(
-                      "flex flex-col",
-                      mine ? "items-end" : "items-start"
-                    )}
+                    className={cn("flex flex-col", mine ? "items-end" : "items-start")}
                   >
                     <span className="mb-0.5 text-xs text-cova-mute">
                       {mine
-                        ? "You"
-                        : `Member ${message.author_id.slice(0, 6)}`}
+                        ? t("groupDetail.you")
+                        : t("groupDetail.member", { id: message.author_id.slice(0, 6) })}
                       {" · "}
-                      {new Date(
-                        message.created_at
-                      ).toLocaleTimeString(undefined, {
+                      {new Date(message.created_at).toLocaleTimeString(undefined, {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
                     </span>
 
-                    <p
+                    <div
                       className={cn(
-                        "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm",
-                        mine ? "bg-cova-soft" : "bg-cova-pale"
+                        "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
+                        mine ? "bg-cova-soft" : "bg-cova-pale",
                       )}
                     >
-                      {message.body}
-                    </p>
+                      {message.body && (
+                        <p className="whitespace-pre-wrap break-words">{message.body}</p>
+                      )}
+                      <PostAttachments attachments={message.attachments ?? []} />
+                    </div>
                   </div>
                 );
               })}
@@ -428,32 +422,32 @@ export function GroupDetail({ code }: { code: string }) {
 
             {canPost ? (
               <form
-                className="flex gap-2 border-t border-cova-line p-3"
+                className="space-y-1 border-t border-cova-line p-3"
                 onSubmit={(event) => void submitMessage(event)}
               >
-                <input
-                  value={text}
-                  maxLength={5000}
-                  onChange={(event) => setText(event.target.value)}
-                  placeholder="Write a message..."
-                  aria-label="Write a message"
-                  className="h-10 min-w-0 flex-1 rounded-lg border border-cova-line px-3 text-sm"
-                />
-
-                <Button
-                  type="submit"
-                  disabled={!text.trim() || busy}
-                >
-                  <Send
-                    className="h-4 w-4 rtl:-scale-x-100"
-                    aria-hidden="true"
+                <div className="flex gap-2">
+                  <input
+                    value={text}
+                    maxLength={5000}
+                    onChange={(event) => setText(event.target.value)}
+                    placeholder={t("groupDetail.writeMessage")}
+                    aria-label={t("groupDetail.writeMessage")}
+                    className="h-10 min-w-0 flex-1 rounded-lg border border-cova-line px-3 text-sm"
                   />
-                  Send
-                </Button>
+
+                  <Button
+                    type="submit"
+                    disabled={(!text.trim() && attachments.length === 0) || busy}
+                  >
+                    <Send className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
+                    {t("groupDetail.send")}
+                  </Button>
+                </div>
+                <MediaComposer spaceId={group.id} disabled={busy} onChange={setAttachments} />
               </form>
             ) : (
               <p className="border-t border-cova-line p-3 text-center text-sm text-cova-mute">
-                You do not have permission to post in this group.
+                {t("groupDetail.cantPost")}
               </p>
             )}
           </Card>
@@ -461,19 +455,24 @@ export function GroupDetail({ code }: { code: string }) {
       </div>
 
       <div className="space-y-3">
+        {isStaff && (
+          <SharePanel
+            title={group.name}
+            spaceId={group.id}
+            code={inviteCode}
+            path={`/groups/${group.id}`}
+          />
+        )}
+
         <Card className="space-y-3 p-4">
-          <h2 className="font-semibold">Group settings</h2>
+          <h2 className="font-semibold">{t("groupDetail.settings")}</h2>
 
           <p className="text-sm text-cova-mute">
-            Your role: {role ?? "Not a member"}
+            {t("groupDetail.yourRole")}: {roleLabel}
           </p>
 
-          <Button
-            variant="secondary"
-            className="w-full"
-            onClick={() => router.push("/groups")}
-          >
-            Back to groups
+          <Button variant="secondary" className="w-full" onClick={() => router.push("/groups")}>
+            {t("groupDetail.back")}
           </Button>
         </Card>
       </div>

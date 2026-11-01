@@ -14,7 +14,7 @@ import { Modal } from "@/components/ui/Modal";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
-import { useT } from "@/i18n/client";
+import { useI18n, useT } from "@/i18n/client";
 import { useHydrated } from "@/lib/use-hydrated";
 import {
   COMMUNITY_CATEGORIES,
@@ -35,11 +35,14 @@ export function CommunityBrowser({ initialJoinCode = "" }: { initialJoinCode?: s
   const router = useRouter();
   const toast = useToast();
   const t = useT();
+  const { locale } = useI18n();
   const hydrated = useHydrated();
   const me = useMe();
   const social = useSocial();
 
-  const [tab, setTab] = useState<(typeof TABS)[number]>(initialJoinCode ? "myCommunities" : "discover");
+  const [tab, setTab] = useState<(typeof TABS)[number]>(
+    initialJoinCode ? "myCommunities" : "discover",
+  );
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState(ALL);
   const [creating, setCreating] = useState(false);
@@ -61,11 +64,14 @@ export function CommunityBrowser({ initialJoinCode = "" }: { initialJoinCode?: s
         .filter(
           (c) =>
             c.visibility === "public" &&
+            // Language isolation: each language sees its own communities
+            // (legacy communities without a language stay visible everywhere).
+            (!c.locale || c.locale === locale) &&
             (category === ALL || c.category === category) &&
             matchesQuery(query, c.name, c.description, c.category),
         )
         .sort((a, b) => b.createdAt - a.createdAt),
-    [social.communities, category, query],
+    [social.communities, category, query, locale],
   );
 
   const mine = useMemo(
@@ -91,9 +97,9 @@ export function CommunityBrowser({ initialJoinCode = "" }: { initialJoinCode?: s
     [social.requests, social.communities, meId],
   );
 
-if (!hydrated || !me) {
-  return <CardGridSkeleton count={3} />;
-}
+  if (!hydrated || !me) {
+    return <CardGridSkeleton count={3} />;
+  }
   const myCount = social.members.filter((m) => m.userId === meId).length;
   const friendRequests = incomingRequests(social, meId).length;
 
@@ -134,7 +140,9 @@ if (!hydrated || !me) {
 
   return (
     <>
-        <div className="mb-8 flex flex-col gap-5 rounded-2xl border border-cova-line bg-white p-5 shadow-sm sm:p-6 lg:flex-row lg:items-center lg:justify-between">        <Tabs
+      <div className="mb-8 flex flex-col gap-5 rounded-2xl border border-cova-line bg-white p-5 shadow-sm sm:p-6 lg:flex-row lg:items-center lg:justify-between">
+        {" "}
+        <Tabs
           tabs={TABS.map((key) => tabLabels[key])}
           value={tabLabels[tab]}
           onChange={(next) => setTab(TABS.find((key) => tabLabels[key] === next) ?? "discover")}
@@ -173,7 +181,11 @@ if (!hydrated || !me) {
                   value === ALL ? t("community.allCategories") : value,
                 )}
                 value={category === ALL ? t("community.allCategories") : category}
-                onChange={(e) => setCategory(e.target.value === t("community.allCategories") ? ALL : e.target.value)}
+                onChange={(e) =>
+                  setCategory(
+                    e.target.value === t("community.allCategories") ? ALL : e.target.value,
+                  )
+                }
               />
             )}
           </div>
@@ -181,7 +193,12 @@ if (!hydrated || !me) {
           {tab === "discover" && (
             <>
               <p className="mb-4 text-sm text-cova-mute" aria-live="polite">
-                {pluralize(discover.length, t("community.publicCommunity"), t("community.publicCommunities"))} {t("community.found")}
+                {pluralize(
+                  discover.length,
+                  t("community.publicCommunity"),
+                  t("community.publicCommunities"),
+                )}{" "}
+                {t("community.found")}
               </p>
               {discover.length === 0 ? (
                 <EmptyState
@@ -192,7 +209,9 @@ if (!hydrated || !me) {
                       : t("community.noPublicCommunitiesYet")
                   }
                   description={t("community.communityHint")}
-                  action={<Button onClick={() => setCreating(true)}>{t("community.create")}</Button>}
+                  action={
+                    <Button onClick={() => setCreating(true)}>{t("community.create")}</Button>
+                  }
                 />
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -247,9 +266,15 @@ if (!hydrated || !me) {
                 pending.length === 0 && (
                   <EmptyState
                     icon={SearchX}
-                    title={query ? t("community.noCommunitiesMatch") : t("community.noJoinedCommunities")}
+                    title={
+                      query ? t("community.noCommunitiesMatch") : t("community.noJoinedCommunities")
+                    }
                     description={t("community.joinPrompt")}
-                    action={<Button onClick={() => setTab("discover")}>{t("community.browseCommunities")}</Button>}
+                    action={
+                      <Button onClick={() => setTab("discover")}>
+                        {t("community.browseCommunities")}
+                      </Button>
+                    }
                   />
                 )
               ) : (

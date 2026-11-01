@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowLeft, Globe, Lock, SearchX, Trash2, Users } from "lucide-react";
+import { MediaComposer } from "@/components/common/MediaComposer";
+import { PostAttachments } from "@/components/common/PostAttachments";
 import {
   MembersTab,
   RequestsTab,
@@ -21,6 +23,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
 import { getStudent } from "@/data/students";
+import { useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import { useHydrated } from "@/lib/use-hydrated";
 import {
   LIMITS,
@@ -33,25 +37,35 @@ import {
   useMe,
   useSocial,
 } from "@/lib/social-store";
-import type { Community, CommunityRole, SocialUser } from "@/types/social";
+import type { Community, CommunityRole, PostAttachment, SocialUser } from "@/types/social";
 
 type TabName = "Feed" | "Members" | "Requests" | "Settings";
 
 function BackLink() {
+  const t = useT();
   return (
     <Link
       href="/community"
       className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-cova-mute hover:text-cova-ink"
     >
-      <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to communities
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t("community.back")}
     </Link>
   );
 }
 
 /** Shown to people who are not members of a private community. Reveals nothing about it. */
-function PrivateGate({ meId, requested, communityId }: { meId: string; requested: boolean; communityId: string }) {
+function PrivateGate({
+  meId,
+  requested,
+  communityId,
+}: {
+  meId: string;
+  requested: boolean;
+  communityId: string;
+}) {
   const router = useRouter();
   const toast = useToast();
+  const t = useT();
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
 
@@ -64,8 +78,8 @@ function PrivateGate({ meId, requested, communityId }: { meId: string; requested
     }
     toast.push(
       result.value.outcome === "requested"
-        ? "Request sent. An admin has to approve it."
-        : "Done",
+        ? t("community.privateRequested")
+        : t("community.joinedCommunity"),
     );
     router.push(`/community/${result.value.communityId}`);
   }
@@ -75,28 +89,28 @@ function PrivateGate({ meId, requested, communityId }: { meId: string; requested
       <BackLink />
       <EmptyState
         icon={Lock}
-        title="This community is private"
-        description={
-          requested
-            ? "Your request is waiting for an admin to approve it."
-            : "You need an invite code or link from its creator or an admin. An admin then approves your request."
-        }
+        title={t("community.privateTitle")}
+        description={requested ? t("community.privateWaiting") : t("community.privateHint")}
         action={
           requested ? (
             <Button
               variant="secondary"
               onClick={async () => {
                 const result = await socialActions.cancelJoinRequest(meId, communityId);
-                toast.push(result.ok ? "Request cancelled" : result.error);
+                toast.push(result.ok ? t("community.requestCancelled") : result.error);
               }}
             >
-              Cancel request
+              {t("community.cancelRequest")}
             </Button>
           ) : (
-            <form onSubmit={onSubmit} noValidate className="flex w-72 max-w-full flex-col gap-3 text-start">
+            <form
+              onSubmit={onSubmit}
+              noValidate
+              className="flex w-72 max-w-full flex-col gap-3 text-start"
+            >
               <TextField
                 id="gate-code"
-                label="Invite code"
+                label={t("community.joinCode")}
                 value={code}
                 error={error}
                 autoComplete="off"
@@ -107,7 +121,7 @@ function PrivateGate({ meId, requested, communityId }: { meId: string; requested
                 }}
               />
               <Button type="submit" disabled={!code.trim()}>
-                Request access
+                {t("community.requestAccess")}
               </Button>
             </form>
           )
@@ -117,21 +131,23 @@ function PrivateGate({ meId, requested, communityId }: { meId: string; requested
   );
 }
 
-function postingNotice(community: Community, role: CommunityRole | null): string {
-  if (!role) return "Join this community to post.";
+function postingNotice(community: Community, role: CommunityRole | null, t: TFunction): string {
+  if (!role) return t("community.joinToPost");
   return community.postingPolicy === "owner"
-    ? "Only the creator can post in this community."
-    : "Only the owner and admins can post in this community.";
+    ? t("community.postOwnerOnly")
+    : t("community.postStaffOnly");
 }
 
 export function CommunityDetail({ communityId }: { communityId: string }) {
   const router = useRouter();
   const toast = useToast();
+  const t = useT();
   const hydrated = useHydrated();
   const me = useMe();
   const social = useSocial();
   const [tab, setTab] = useState<TabName>("Feed");
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<PostAttachment[]>([]);
   // Private communities you aren't in can't be read, so ask the server whether the id is one.
   const [probed, setProbed] = useState(false);
 
@@ -161,11 +177,11 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
         <BackLink />
         <EmptyState
           icon={SearchX}
-          title="Community not found"
-          description="It may have been deleted, or the link is wrong."
+          title={t("community.notFoundTitle")}
+          description={t("community.notFoundDesc")}
           action={
             <Link href="/community" className={buttonStyles({ variant: "secondary" })}>
-              Browse communities
+              {t("community.back")}
             </Link>
           }
         />
@@ -185,21 +201,31 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
   if (role === "owner") tabs.push("Settings");
   const activeTab = tabs.includes(tab) ? tab : "Feed";
 
-  const policyLabel = POSTING_CHOICES.find((p) => p.value === community.postingPolicy)?.label;
+  const tabLabels: Partial<Record<TabName, string>> = {
+    Feed: t("community.tabFeed"),
+    Members: t("community.tabMembers"),
+    Requests: t("community.tabRequests"),
+    Settings: t("community.tabSettings"),
+  };
+  const policyLabel = t(
+    POSTING_CHOICES.find((p) => p.value === community.postingPolicy)?.labelKey ??
+      "community.everyone",
+  );
   const isPrivate = community.visibility === "private";
 
   async function onPost(e: FormEvent) {
     e.preventDefault();
-    const result = await socialActions.postToCommunity(meId, communityId, draft);
+    const result = await socialActions.postToCommunity(meId, communityId, draft, attachments);
     if (!result.ok) {
       toast.push(result.error);
       return;
     }
     setDraft("");
+    setAttachments([]);
   }
 
   function authorLabel(author: SocialUser | undefined) {
-    return author?.displayName ?? "Former member";
+    return author?.displayName ?? t("community.formerMember");
   }
 
   return (
@@ -217,7 +243,7 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
                 ) : (
                   <Globe className="h-3.5 w-3.5" aria-hidden="true" />
                 )}
-                {isPrivate ? "Private" : "Public"}
+                {isPrivate ? t("community.private") : t("community.public")}
               </span>
               {role && <RoleBadge role={role} />}
             </div>
@@ -227,10 +253,12 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
             </p>
             <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-cova-mute">
               <span className="flex items-center gap-1.5">
-                <Users className="h-4 w-4" aria-hidden="true" /> {memberCount(social, communityId)}{" "}
-                members
+                <Users className="h-4 w-4" aria-hidden="true" />{" "}
+                {t("community.membersCount", { n: memberCount(social, communityId) })}
               </span>
-              <span>Who can post: {policyLabel}</span>
+              <span>
+                {t("community.whoCanPost")}: {policyLabel}
+              </span>
             </p>
           </div>
           <div className="flex gap-2">
@@ -238,23 +266,26 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
               <Button
                 onClick={async () => {
                   const result = await socialActions.joinCommunity(meId, communityId);
-                  toast.push(result.ok ? `Joined ${community.name}` : result.error);
+                  toast.push(
+                    result.ok ? t("community.joinedName", { name: community.name }) : result.error,
+                  );
                 }}
               >
-                Join community
+                {t("community.joinCommunity")}
               </Button>
             )}
             {role && role !== "owner" && (
               <Button
                 variant="secondary"
                 onClick={async () => {
-                  if (!window.confirm(`Leave ${community.name}?`)) return;
+                  if (!window.confirm(t("community.leaveConfirm", { name: community.name })))
+                    return;
                   const result = await socialActions.leaveCommunity(meId, communityId);
-                  toast.push(result.ok ? "You left the community" : result.error);
+                  toast.push(result.ok ? t("community.left") : result.error);
                   if (result.ok && isPrivate) router.push("/community");
                 }}
               >
-                Leave
+                {t("community.leave")}
               </Button>
             )}
           </div>
@@ -266,7 +297,8 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
           tabs={tabs}
           value={activeTab}
           onChange={setTab}
-          label="Community sections"
+          label={t("community.sectionsLabel")}
+          labels={tabLabels}
           counts={requestCount > 0 && staff ? { Requests: requestCount } : undefined}
         />
       </div>
@@ -279,19 +311,20 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
                 <CardBody>
                   <form onSubmit={onPost} className="space-y-3">
                     <label htmlFor="community-post" className="sr-only">
-                      Write a post
+                      {t("community.writePost")}
                     </label>
                     <textarea
                       id="community-post"
                       value={draft}
                       maxLength={LIMITS.text.max}
                       onChange={(e) => setDraft(e.target.value)}
-                      placeholder="Share an update with the community"
+                      placeholder={t("community.postPlaceholder")}
                       className="min-h-20 w-full rounded-lg border border-cova-line px-3 py-2 text-sm placeholder:text-cova-mute"
                     />
+                    <MediaComposer spaceId={communityId} onChange={setAttachments} />
                     <div className="flex justify-end">
-                      <Button type="submit" disabled={!draft.trim()}>
-                        Post
+                      <Button type="submit" disabled={!draft.trim() && attachments.length === 0}>
+                        {t("community.post")}
                       </Button>
                     </div>
                   </form>
@@ -299,12 +332,12 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
               </Card>
             ) : (
               <p className="rounded-lg bg-cova-pale px-4 py-3 text-sm">
-                {postingNotice(community, role)}
+                {postingNotice(community, role, t)}
               </p>
             )}
 
             {posts.length === 0 ? (
-              <p className="py-8 text-center text-sm text-cova-mute">No posts yet.</p>
+              <p className="py-8 text-center text-sm text-cova-mute">{t("community.noPosts")}</p>
             ) : (
               posts.map((p) => {
                 const author = social.users[p.authorId];
@@ -321,7 +354,10 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
                       <div className="min-w-0 flex-1">
                         <p className="flex flex-wrap items-center gap-2 text-sm">
                           {profile ? (
-                            <Link href={`/community/${profile.id}`} className="font-semibold hover:underline">
+                            <Link
+                              href={`/community/${profile.id}`}
+                              className="font-semibold hover:underline"
+                            >
                               {authorLabel(author)}
                             </Link>
                           ) : (
@@ -330,12 +366,15 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
                           {authorRole && <RoleBadge role={authorRole} />}
                           <span className="text-cova-mute">· {formatWhen(p.at)}</span>
                         </p>
-                        <p className="mt-1 whitespace-pre-line break-words text-sm">{p.text}</p>
+                        {p.text && (
+                          <p className="mt-1 whitespace-pre-line break-words text-sm">{p.text}</p>
+                        )}
+                        <PostAttachments attachments={p.attachments} />
                       </div>
                       {canDelete && (
                         <button
                           type="button"
-                          aria-label="Delete post"
+                          aria-label={t("community.deletePost")}
                           onClick={async () => {
                             const result = await socialActions.deletePost(meId, p.id);
                             if (!result.ok) toast.push(result.error);
@@ -358,7 +397,7 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
         )}
         {activeTab === "Members" && !role && (
           <p className="rounded-lg bg-cova-pale px-4 py-3 text-sm">
-            Join this community to see its members.
+            {t("community.joinToSeeMembers")}
           </p>
         )}
         {activeTab === "Requests" && staff && <RequestsTab community={community} meId={meId} />}

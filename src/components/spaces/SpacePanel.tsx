@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Crown, MicOff, ShieldCheck, UserX } from "lucide-react";
+import { Check, Copy, Crown, MicOff, QrCode, ShieldCheck, UserX } from "lucide-react";
+import { QrImage } from "@/components/common/QrImage";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -14,12 +15,14 @@ type Send = (body: Record<string, unknown>) => Promise<unknown>;
 export function SpacePanel({ view, meUid, send }: { view: SpaceView; meUid: string; send: Send }) {
   const t = useS();
   const [copied, setCopied] = useState<"link" | "code" | null>(null);
+  const [showQr, setShowQr] = useState(false);
   const isOwner = view.status === "owner";
   const canMod = isOwner || view.status === "mod";
 
+  const shareLink = `${window.location.origin}${roomPath(view.kind, view.code)}`;
+
   const copy = async (what: "link" | "code") => {
-    const text =
-      what === "code" ? view.code : `${window.location.origin}${roomPath(view.kind, view.code)}`;
+    const text = what === "code" ? view.code : shareLink;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(what);
@@ -59,7 +62,16 @@ export function SpacePanel({ view, meUid, send }: { view: SpaceView; meUid: stri
               )}
               {copied === "code" ? t("room.copied") : t("room.copyCode")}
             </Button>
+            <Button size="sm" variant="secondary" onClick={() => setShowQr((v) => !v)}>
+              <QrCode className="h-4 w-4" aria-hidden="true" />
+              {showQr ? t("room.hideQr") : t("room.showQr")}
+            </Button>
           </div>
+          {showQr && (
+            <div className="flex justify-center rounded-lg border border-cova-line bg-white p-3">
+              <QrImage value={shareLink} size={200} />
+            </div>
+          )}
           {isOwner && (
             <div className="flex flex-wrap gap-2 border-t border-cova-line pt-3">
               <Button

@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, MessageSquare, SearchX, UserCheck, UserMinus, UserPlus, X } from "lucide-react";
+import {
+  Check,
+  Copy,
+  MessageSquare,
+  SearchX,
+  UserCheck,
+  UserMinus,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonStyles } from "@/components/ui/Button";
@@ -67,7 +76,10 @@ function PersonRow({ user, meId }: { user: SocialUser; meId: string }) {
           <Button
             size="sm"
             onClick={() =>
-              run(socialActions.sendFriendRequest(meId, user.id), `Request sent to ${user.displayName}`)
+              run(
+                socialActions.sendFriendRequest(meId, user.id),
+                `Request sent to ${user.displayName}`,
+              )
             }
           >
             <UserPlus className="h-4 w-4" aria-hidden="true" /> Add friend
@@ -77,9 +89,7 @@ function PersonRow({ user, meId }: { user: SocialUser; meId: string }) {
           <Button
             size="sm"
             variant="secondary"
-            onClick={() =>
-              run(socialActions.removeFriendship(meId, user.id), "Request cancelled")
-            }
+            onClick={() => run(socialActions.removeFriendship(meId, user.id), "Request cancelled")}
           >
             <X className="h-4 w-4" aria-hidden="true" /> Cancel request
           </Button>
@@ -178,7 +188,11 @@ export function PeopleHub({ me }: { me: SocialUser }) {
           <Button
             variant="secondary"
             onClick={async () =>
-              toast.push((await copyText(me.id)) ? "ID copied" : "Couldn't copy. Select it and copy it manually.")
+              toast.push(
+                (await copyText(me.id))
+                  ? "ID copied"
+                  : "Couldn't copy. Select it and copy it manually.",
+              )
             }
           >
             <Copy className="h-4 w-4" aria-hidden="true" /> Copy ID

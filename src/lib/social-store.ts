@@ -11,38 +11,23 @@ import { getSupabase } from "@/lib/supabase/client";
 import type { Tone } from "@/types";
 
 import type {
-
   ActionResult,
-
   Community,
-
+  CommunityLocale,
   CommunityMember,
-
   CommunityPost,
-
   CommunityRole,
-
   CommunityVisibility,
-
   DirectMessage,
-
   Friendship,
-
   JoinOutcome,
-
   JoinRequest,
-
   PostingPolicy,
-
+  PostAttachment,
   SocialNotification,
-
   SocialState,
-
   SocialUser,
-
 } from "@/types/social";
-
-
 
 /**
 
@@ -74,14 +59,9 @@ import type {
 
  */
 
-
-
 export { fail, ok };
 
-
-
 export const COMMUNITY_CATEGORIES = [
-
   "Study",
 
   "Project",
@@ -93,22 +73,15 @@ export const COMMUNITY_CATEGORIES = [
   "Languages",
 
   "Other",
-
 ] as const;
 
-
-
 export const LIMITS = {
-
   name: { min: 3, max: 60 },
 
   description: { min: 10, max: 500 },
 
   text: { max: 2000 },
-
 } as const;
-
-
 
 /** How much history is loaded at once (newest first). Older items need pagination. */
 
@@ -129,32 +102,19 @@ interface NotificationRow {
   created_at: string;
 }
 
-
-
 /* ------------------------------------------------------------------ helpers */
 
-
-
 export function pairKey(a: string, b: string): string {
-
   return [a, b].sort().join("|");
-
 }
-
-
 
 export function normalizeCode(raw: string): string {
-
   return raw.trim().toUpperCase().replace(/[\s-]/g, "");
-
 }
-
-
 
 /** Short time for today, short date otherwise. Only call after hydration (it uses local time). */
 
 export function formatWhen(at: number): string {
-
   const d = new Date(at);
 
   const now = new Date();
@@ -162,23 +122,13 @@ export function formatWhen(at: number): string {
   const sameDay = d.toDateString() === now.toDateString();
 
   return sameDay
-
     ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-
     : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-
 }
-
-
 
 /* -------------------------------------------------------------- database rows */
 
-
-
-
-
 interface ProfileRow {
-
   id: string;
 
   user_code: string;
@@ -192,13 +142,11 @@ interface ProfileRow {
   xp: number;
 
   created_at: string;
-
 }
 
 const PROFILE_COLUMNS = "id,user_code,display_name,bio,language,xp,created_at";
 
 interface FriendshipRow {
-
   from_id: string;
 
   to_id: string;
@@ -206,11 +154,9 @@ interface FriendshipRow {
   status: "pending" | "accepted";
 
   created_at: string;
-
 }
 
 interface MessageRow {
-
   id: string;
 
   from_id: string;
@@ -220,19 +166,15 @@ interface MessageRow {
   body: string;
 
   created_at: string;
-
 }
 
 interface ReadRow {
-
   other_id: string;
 
   read_at: string;
-
 }
 
 interface CommunityRow {
-
   id: string;
 
   name: string;
@@ -243,18 +185,18 @@ interface CommunityRow {
 
   visibility: CommunityVisibility;
 
-  posting_policy: PostingPolicy;
+  posting_policy: string;
 
   hide_members: boolean;
+
+  locale?: string | null;
 
   owner_id: string;
 
   created_at: string;
-
 }
 
 interface MemberRow {
-
   community_id: string;
 
   user_id: string;
@@ -262,11 +204,9 @@ interface MemberRow {
   role: CommunityRole;
 
   joined_at: string;
-
 }
 
 interface RequestRow {
-
   id: string;
 
   community_id: string;
@@ -274,11 +214,9 @@ interface RequestRow {
   user_id: string;
 
   created_at: string;
-
 }
 
 interface PostRow {
-
   id: string;
 
   community_id: string;
@@ -287,68 +225,44 @@ interface PostRow {
 
   body: string;
 
-  created_at: string;
+  attachments?: PostAttachment[] | null;
 
+  created_at: string;
 }
 
 interface CodeRow {
-
   community_id: string;
 
   code: string;
-
 }
 
-
-
-
-
 interface DbError {
-
   message: string;
 
   code?: string;
-
 }
 
-
-
 const GENERIC_ERROR = "Something went wrong. Please try again.";
-
-
 
 /** Turns a database error into a message for the UI. Our own RPC errors are already readable. */
 
 function describe(error: DbError, denied = "You don't have permission to do that."): string {
-
   if (error.code === "P0001") return error.message; // raise exception '...' in our functions
 
   if (error.code === "42501") return denied; // RLS or missing grant
 
   return GENERIC_ERROR;
-
 }
-
-
 
 function toTone(value: string): Tone {
-
   return value === "pale" || value === "muted" ? value : "soft";
-
 }
-
-
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-
-
 /* -------------------------------------------------------------------- state */
 
-
-
 const INITIAL: SocialState = {
-
   meId: null,
 
   ready: false,
@@ -370,39 +284,26 @@ const INITIAL: SocialState = {
   posts: [],
 
   notifications: [],
-
 };
-
-
 
 let state: SocialState = INITIAL;
 
 const listeners = new Set<() => void>();
 
-
-
 /** JSON of each slice last committed, so identical data never triggers a re-render. */
 
 let signatures: Partial<Record<keyof SocialState, string>> = {};
 
-
-
 function emit(): void {
-
   listeners.forEach((l) => l());
-
 }
 
-
-
 function commit(patch: Partial<SocialState>): void {
-
   let next: SocialState = state;
 
   let changed = false;
 
   for (const key of Object.keys(patch) as (keyof SocialState)[]) {
-
     const value = patch[key];
 
     const signature = JSON.stringify(value);
@@ -414,36 +315,24 @@ function commit(patch: Partial<SocialState>): void {
     next = Object.assign({}, next, { [key]: value });
 
     changed = true;
-
   }
 
   if (changed) {
-
     state = next;
 
     emit();
-
   }
-
 }
 
-
-
 function resetState(ready: boolean): void {
-
   signatures = {};
 
   state = { ...INITIAL, ready };
 
   emit();
-
 }
 
-
-
 /* ------------------------------------------------------------ people cache */
-
-
 
 /** public id -> person, and the two id maps. Auth user ids never leave this file. */
 
@@ -453,28 +342,17 @@ const publicByUuid = new Map<string, string>();
 
 const uuidByPublic = new Map<string, string>();
 
-
-
 let meUuid: string | null = null;
 
 let meEmail = "";
 
-
-
-
-
-
-
 function registerProfiles(rows: ProfileRow[]): void {
-
   for (const r of rows) {
-
     publicByUuid.set(r.id, r.user_code);
 
     uuidByPublic.set(r.user_code, r.id);
 
     people.set(r.user_code, {
-
       id: r.user_code,
 
       email: r.id === meUuid ? meEmail : "",
@@ -488,67 +366,41 @@ function registerProfiles(rows: ProfileRow[]): void {
       createdAt: Date.parse(r.created_at),
 
       sample: false,
-
     });
-
   }
-
 }
-
-
 
 function usersSnapshot(): Record<string, SocialUser> {
-
   return Object.fromEntries(people);
-
 }
-
-
 
 function pub(uuid: string): string {
-
   return publicByUuid.get(uuid) ?? "";
-
 }
 
-
-
-async function rows<T>(
-
-  query: PromiseLike<{ data: unknown; error: DbError | null }>,
-
-): Promise<T[]> {
-
+async function rows<T>(query: PromiseLike<{ data: unknown; error: DbError | null }>): Promise<T[]> {
   const { data, error } = await query;
 
   if (error) throw new Error(error.message);
 
   return (data ?? []) as T[];
-
 }
-
-
 
 /** Loads the profiles for these auth ids that aren't cached yet (in chunks: URLs have limits). */
 
 async function ensureProfiles(sb: SupabaseClient, ids: string[]): Promise<void> {
-
   const missing = [...new Set(ids)].filter((id) => id && !publicByUuid.has(id));
 
   for (let i = 0; i < missing.length; i += 100) {
-
     const chunk = missing.slice(i, i + 100);
 
-    registerProfiles(await rows<ProfileRow>(sb.from("profiles").select(PROFILE_COLUMNS).in("id", chunk)));
-
+    registerProfiles(
+      await rows<ProfileRow>(sb.from("profiles").select(PROFILE_COLUMNS).in("id", chunk)),
+    );
   }
-
 }
 
-
-
 async function resolveUuid(sb: SupabaseClient, publicId: string): Promise<string | null> {
-
   const cached = uuidByPublic.get(publicId);
 
   if (cached) return cached;
@@ -570,31 +422,28 @@ async function resolveUuid(sb: SupabaseClient, publicId: string): Promise<string
   commit({ users: usersSnapshot() });
 
   return uuidByPublic.get(publicId) ?? null;
-
 }
-
-
 
 /* ----------------------------------------------------------------- loaders */
 
-
-
 type Slice = "profile" | "friends" | "messages" | "communities" | "posts" | "notifications";
-
-
 
 /** Communities that exist and are private but that this person can't read (see probeCommunity). */
 
 const lockedCommunities = new Set<string>();
 
+/** Whether the live `spaces` table already has the locale column (migration not applied => false). */
 
+let spacesLocaleSupported = true;
+
+/** Whether the live `space_posts` table already has the attachments column. */
+
+let spaceAttachmentsSupported = true;
 
 function lockedPlaceholder(id: string): Community {
-
   // Reveals nothing: the detail screen shows its "private, enter a code" gate for these.
 
   return {
-
     id,
 
     name: "",
@@ -609,44 +458,36 @@ function lockedPlaceholder(id: string): Community {
 
     hideMembers: false,
 
+    locale: "",
+
     joinCode: "",
 
     ownerId: "",
 
     createdAt: 0,
-
   };
-
 }
 
-
-
 const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>> = {
-
   async profile(sb, me) {
-
     await ensureProfiles(sb, [me]);
 
     commit({ users: usersSnapshot() });
-
   },
 
-
-
   async friends(sb) {
-
     const data = await rows<FriendshipRow>(
-
       sb.from("friendships").select("from_id,to_id,status,created_at"),
-
     );
 
-    await ensureProfiles(sb, data.flatMap((r) => [r.from_id, r.to_id]));
+    await ensureProfiles(
+      sb,
+      data.flatMap((r) => [r.from_id, r.to_id]),
+    );
 
     const friendships: Record<string, Friendship> = {};
 
     for (const r of data) {
-
       const from = pub(r.from_id);
 
       const to = pub(r.to_id);
@@ -655,22 +496,21 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>> 
 
       const id = pairKey(from, to);
 
-      friendships[id] = { id, fromId: from, toId: to, status: r.status, createdAt: Date.parse(r.created_at) };
-
+      friendships[id] = {
+        id,
+        fromId: from,
+        toId: to,
+        status: r.status,
+        createdAt: Date.parse(r.created_at),
+      };
     }
 
     commit({ users: usersSnapshot(), friendships });
-
   },
 
-
-
   async messages(sb, me) {
-
     const [msgs, readRows] = await Promise.all([
-
       rows<MessageRow>(
-
         sb
 
           .from("direct_messages")
@@ -680,195 +520,241 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>> 
           .order("created_at", { ascending: false })
 
           .limit(MESSAGE_LIMIT),
-
       ),
 
       rows<ReadRow>(sb.from("message_reads").select("other_id,read_at")),
-
     ]);
 
     msgs.reverse();
 
-    await ensureProfiles(sb, [...msgs.flatMap((m) => [m.from_id, m.to_id]), ...readRows.map((r) => r.other_id)]);
+    await ensureProfiles(sb, [
+      ...msgs.flatMap((m) => [m.from_id, m.to_id]),
+      ...readRows.map((r) => r.other_id),
+    ]);
 
     const meKey = pub(me);
 
     const messages: DirectMessage[] = [];
 
     for (const m of msgs) {
-
       const from = pub(m.from_id);
 
       const to = pub(m.to_id);
 
       if (!from || !to) continue;
 
-      messages.push({ id: m.id, threadId: pairKey(from, to), fromId: from, text: m.body, at: Date.parse(m.created_at) });
-
+      messages.push({
+        id: m.id,
+        threadId: pairKey(from, to),
+        fromId: from,
+        text: m.body,
+        at: Date.parse(m.created_at),
+      });
     }
 
     const reads: Record<string, number> = {};
 
     for (const r of readRows) {
-
       const other = pub(r.other_id);
 
       if (other) reads[`${meKey}:${pairKey(meKey, other)}`] = Date.parse(r.read_at);
-
     }
 
     commit({ users: usersSnapshot(), messages, reads });
-
   },
 
-
-
-  
-async communities(sb) {
-  const communityRows = await rows<CommunityRow>(
-    sb
-      .from("spaces")
-      .select(
-        "id,name,description,category,visibility,posting_policy:post_policy,hide_members,owner_id,created_at",
-      )
-      .eq("kind", "community"),
-  );
-
-  const communityIds = communityRows.map((c) => c.id);
-
-  const [memberRows, requestRows, codeRows] = await Promise.all([
-    rows<MemberRow>(
-      sb
-        .from("space_members")
-        .select("community_id:space_id,user_id,role,joined_at")
-        .in("space_id", communityIds),
-    ),
-    rows<RequestRow>(
-      sb
-        .from("space_join_requests")
-        .select("id,community_id:space_id,user_id,created_at")
-        .in("space_id", communityIds)
-        .eq("status", "pending"),
-    ),
-    communityIds.length
-      ? rows<CodeRow>(
+  async communities(sb) {
+    // The locale column may not exist yet (migration not applied); fall back gracefully.
+    let communityRows: CommunityRow[];
+    if (spacesLocaleSupported) {
+      try {
+        communityRows = await rows<CommunityRow>(
           sb
-            .from("join_codes")
-            .select("community_id:target_id,code")
-            .eq("kind", "space")
-            .in("target_id", communityIds),
-        )
-      : Promise.resolve([] as CodeRow[]),
-  ]);
-
-  await ensureProfiles(sb, [
-    ...communityRows.map((c) => c.owner_id),
-    ...memberRows.map((m) => m.user_id),
-    ...requestRows.map((r) => r.user_id),
-  ]);
-
-  const codes = new Map(codeRows.map((c) => [c.community_id, c.code]));
-  const communities: Record<string, Community> = {};
-
-  for (const c of communityRows) {
-    lockedCommunities.delete(c.id);
-
-    communities[c.id] = {
-      id: c.id,
-      name: c.name,
-      description: c.description,
-      category: c.category,
-      visibility: c.visibility,
-      postingPolicy: c.posting_policy,
-      hideMembers: c.hide_members,
-      joinCode: codes.get(c.id) ?? "",
-      ownerId: pub(c.owner_id),
-      createdAt: Date.parse(c.created_at),
-    };
-  }
-
-  for (const id of lockedCommunities) {
-    communities[id] ??= lockedPlaceholder(id);
-  }
-
-  const members: CommunityMember[] = memberRows.flatMap((m) => {
-    const userId = pub(m.user_id);
-    return userId
-      ? [{
-          communityId: m.community_id,
-          userId,
-          role: m.role,
-          joinedAt: Date.parse(m.joined_at),
-        }]
-      : [];
-  });
-
-  const requests: JoinRequest[] = requestRows.flatMap((r) => {
-    const userId = pub(r.user_id);
-    return userId
-      ? [{
-          id: r.id,
-          communityId: r.community_id,
-          userId,
-          createdAt: Date.parse(r.created_at),
-        }]
-      : [];
-  });
-
-  commit({ users: usersSnapshot(), communities, members, requests });
-},
-
-
-
-
-  
-async posts(sb) {
-  const data = await rows<PostRow>(
-    sb
-      .from("space_posts")
-      .select("id,community_id:space_id,author_id,body,created_at")
-      .order("created_at", { ascending: false })
-      .limit(POST_LIMIT),
-  );
-
-  // Keep only community posts; Groups must remain separate.
-  const spaceIds = [...new Set(data.map((p) => p.community_id))];
-
-  const communityRows = spaceIds.length
-    ? await rows<{ id: string }>(
+            .from("spaces")
+            .select(
+              "id,name,description,category,visibility,posting_policy:post_policy,hide_members,locale,owner_id,created_at",
+            )
+            .eq("kind", "community"),
+        );
+      } catch {
+        spacesLocaleSupported = false;
+        communityRows = await rows<CommunityRow>(
+          sb
+            .from("spaces")
+            .select(
+              "id,name,description,category,visibility,posting_policy:post_policy,hide_members,owner_id,created_at",
+            )
+            .eq("kind", "community"),
+        );
+      }
+    } else {
+      communityRows = await rows<CommunityRow>(
         sb
           .from("spaces")
-          .select("id")
-          .eq("kind", "community")
-          .in("id", spaceIds),
-      )
-    : [];
+          .select(
+            "id,name,description,category,visibility,posting_policy:post_policy,hide_members,owner_id,created_at",
+          )
+          .eq("kind", "community"),
+      );
+    }
 
-  const communityIds = new Set(communityRows.map((c) => c.id));
-  const communityPosts = data.filter((p) =>
-    communityIds.has(p.community_id),
-  );
+    const communityIds = communityRows.map((c) => c.id);
 
-  await ensureProfiles(sb, communityPosts.map((p) => p.author_id));
+    const [memberRows, requestRows, codeRows] = await Promise.all([
+      rows<MemberRow>(
+        sb
+          .from("space_members")
+          .select("community_id:space_id,user_id,role,joined_at")
+          .in("space_id", communityIds),
+      ),
+      rows<RequestRow>(
+        sb
+          .from("space_join_requests")
+          .select("id,community_id:space_id,user_id,created_at")
+          .in("space_id", communityIds)
+          .eq("status", "pending"),
+      ),
+      communityIds.length
+        ? rows<CodeRow>(
+            sb
+              .from("join_codes")
+              .select("community_id:target_id,code")
+              .eq("kind", "space")
+              .in("target_id", communityIds),
+          )
+        : Promise.resolve([] as CodeRow[]),
+    ]);
 
-  const posts: CommunityPost[] = communityPosts.flatMap((p) => {
-    const authorId = pub(p.author_id);
+    await ensureProfiles(sb, [
+      ...communityRows.map((c) => c.owner_id),
+      ...memberRows.map((m) => m.user_id),
+      ...requestRows.map((r) => r.user_id),
+    ]);
 
-    return authorId
-      ? [{
-          id: p.id,
-          communityId: p.community_id,
-          authorId,
-          text: p.body,
-          at: Date.parse(p.created_at),
-        }]
+    const codes = new Map(codeRows.map((c) => [c.community_id, c.code]));
+    const communities: Record<string, Community> = {};
+
+    for (const c of communityRows) {
+      lockedCommunities.delete(c.id);
+
+      communities[c.id] = {
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        category: c.category,
+        visibility: c.visibility,
+        postingPolicy: normalizePolicy(c.posting_policy),
+        hideMembers: c.hide_members,
+        locale: normalizeLocale(c.locale),
+        joinCode: codes.get(c.id) ?? "",
+        ownerId: pub(c.owner_id),
+        createdAt: Date.parse(c.created_at),
+      };
+    }
+
+    for (const id of lockedCommunities) {
+      communities[id] ??= lockedPlaceholder(id);
+    }
+
+    const members: CommunityMember[] = memberRows.flatMap((m) => {
+      const userId = pub(m.user_id);
+      return userId
+        ? [
+            {
+              communityId: m.community_id,
+              userId,
+              role: m.role,
+              joinedAt: Date.parse(m.joined_at),
+            },
+          ]
+        : [];
+    });
+
+    const requests: JoinRequest[] = requestRows.flatMap((r) => {
+      const userId = pub(r.user_id);
+      return userId
+        ? [
+            {
+              id: r.id,
+              communityId: r.community_id,
+              userId,
+              createdAt: Date.parse(r.created_at),
+            },
+          ]
+        : [];
+    });
+
+    commit({ users: usersSnapshot(), communities, members, requests });
+  },
+
+  async posts(sb) {
+    // The attachments column may not exist yet (migration not applied); fall back gracefully.
+    let data: PostRow[];
+    if (spaceAttachmentsSupported) {
+      try {
+        data = await rows<PostRow>(
+          sb
+            .from("space_posts")
+            .select("id,community_id:space_id,author_id,body,attachments,created_at")
+            .order("created_at", { ascending: false })
+            .limit(POST_LIMIT),
+        );
+      } catch {
+        spaceAttachmentsSupported = false;
+        data = await rows<PostRow>(
+          sb
+            .from("space_posts")
+            .select("id,community_id:space_id,author_id,body,created_at")
+            .order("created_at", { ascending: false })
+            .limit(POST_LIMIT),
+        );
+      }
+    } else {
+      data = await rows<PostRow>(
+        sb
+          .from("space_posts")
+          .select("id,community_id:space_id,author_id,body,created_at")
+          .order("created_at", { ascending: false })
+          .limit(POST_LIMIT),
+      );
+    }
+
+    // Keep only community posts; Groups must remain separate.
+    const spaceIds = [...new Set(data.map((p) => p.community_id))];
+
+    const communityRows = spaceIds.length
+      ? await rows<{ id: string }>(
+          sb.from("spaces").select("id").eq("kind", "community").in("id", spaceIds),
+        )
       : [];
-  });
 
-  commit({ users: usersSnapshot(), posts });
-},
+    const communityIds = new Set(communityRows.map((c) => c.id));
+    const communityPosts = data.filter((p) => communityIds.has(p.community_id));
 
+    await ensureProfiles(
+      sb,
+      communityPosts.map((p) => p.author_id),
+    );
 
+    const posts: CommunityPost[] = communityPosts.flatMap((p) => {
+      const authorId = pub(p.author_id);
+
+      return authorId
+        ? [
+            {
+              id: p.id,
+              communityId: p.community_id,
+              authorId,
+              text: p.body,
+              attachments: sanitizeAttachments(p.attachments),
+              at: Date.parse(p.created_at),
+            },
+          ]
+        : [];
+    });
+
+    commit({ users: usersSnapshot(), posts });
+  },
 
   async notifications(sb, me) {
     void me;
@@ -898,104 +784,71 @@ async posts(sb) {
 
     commit({ users: usersSnapshot(), notifications });
   },
-
-
 };
-
-
 
 /** Loads run one after another per slice, so a refresh started after a write always sees it. */
 
 const chains = new Map<Slice, Promise<void>>();
 
-
-
 function refresh(slice: Slice): Promise<void> {
-
   const prev = chains.get(slice) ?? Promise.resolve();
 
   const next = prev.then(async () => {
-
     if (!meUuid) return;
 
     const sb = getSupabase();
 
     try {
-
       await loaders[slice](sb, meUuid);
-
     } catch (error) {
-
       // Offline or a transient error: keep the cache we have; the next event or reconnect retries.
 
       console.warn(`[social] could not refresh ${slice}`, error);
-
     }
-
   });
 
   chains.set(slice, next);
 
   return next;
-
 }
 
-
-
 const timers = new Map<Slice, ReturnType<typeof setTimeout>>();
-
-
 
 /** Realtime events arrive in bursts (one per row); re-read once. */
 
 function scheduleRefresh(slice: Slice): void {
-
   const existing = timers.get(slice);
 
   if (existing) clearTimeout(existing);
 
   timers.set(
-
     slice,
 
     setTimeout(() => {
-
       timers.delete(slice);
 
       void refresh(slice);
-
     }, 120),
-
   );
-
 }
-
-
 
 function refreshAll(): Promise<void[]> {
-
-  return Promise.all((["friends", "messages", "communities", "posts", "notifications"] as const).map(refresh));
-
+  return Promise.all(
+    (["friends", "messages", "communities", "posts", "notifications"] as const).map(refresh),
+  );
 }
-
-
 
 /* --------------------------------------------------------------- realtime */
 
-
-
 let channel: ReturnType<SupabaseClient["channel"]> | null = null;
 
-
-
 function subscribeRealtime(sb: SupabaseClient, me: string): void {
-
   const ch = sb.channel(`cova-social-${me}`);
 
   const listen = (table: string, slice: Slice, filter?: string) => {
-
-    ch.on("postgres_changes", { event: "*", schema: "public", table, filter }, () => scheduleRefresh(slice));
-
+    ch.on("postgres_changes", { event: "*", schema: "public", table, filter }, () =>
+      scheduleRefresh(slice),
+    );
   };
 
   // RLS decides which rows each person is told about. Filters only reduce the traffic.
@@ -1019,38 +872,25 @@ function subscribeRealtime(sb: SupabaseClient, me: string): void {
   // Anything missed while the socket was down is picked up when it (re)connects.
 
   ch.subscribe((status) => {
-
     if (status === "SUBSCRIBED") void refreshAll();
-
   });
 
   channel = ch;
-
 }
 
-
-
 function stopRealtime(): void {
-
   for (const t of timers.values()) clearTimeout(t);
 
   timers.clear();
 
   if (channel) {
-
     void getSupabase().removeChannel(channel);
 
     channel = null;
-
   }
-
 }
 
-
-
 /* ----------------------------------------------------------------- session */
-
-
 
 let started = false;
 
@@ -1058,12 +898,8 @@ let currentUser: string | null = null;
 
 let epoch = 0;
 
-
-
 function createDemoUser(): SocialUser {
-
   return {
-
     id: demoCurrentUser.id,
 
     email: "sam.rivera@example.edu",
@@ -1077,55 +913,37 @@ function createDemoUser(): SocialUser {
     createdAt: Date.now(),
 
     sample: false,
-
   };
-
 }
 
-
-
 function hydrateDemoState(): void {
-
   const demoUser = createDemoUser();
 
-  const demoUsers: Record<string, SocialUser> = Object.fromEntries(
+  const demoUsers: Record<string, SocialUser> = Object.fromEntries([
+    ...students.map((student) => [
+      student.id,
 
-    [
+      {
+        id: student.id,
 
-      ...students.map((student) => [
+        email: "",
 
-        student.id,
+        displayName: student.name,
 
-        {
+        headline: student.headline,
 
-          id: student.id,
+        tone: toTone(student.tone),
 
-          email: "",
+        createdAt: Date.now(),
 
-          displayName: student.name,
+        sample: true,
+      },
+    ]),
 
-          headline: student.headline,
-
-          tone: toTone(student.tone),
-
-          createdAt: Date.now(),
-
-          sample: true,
-
-        },
-
-      ]),
-
-      [demoUser.id, demoUser],
-
-    ],
-
-  );
-
-
+    [demoUser.id, demoUser],
+  ]);
 
   commit({
-
     meId: demoUser.id,
 
     ready: true,
@@ -1147,15 +965,10 @@ function hydrateDemoState(): void {
     posts: [],
 
     notifications: [],
-
   });
-
 }
 
-
-
 async function startSession(user: User, token: number): Promise<void> {
-
   const sb = getSupabase();
 
   meUuid = user.id;
@@ -1169,13 +982,11 @@ async function startSession(user: User, token: number): Promise<void> {
   const meKey = pub(user.id);
 
   if (!meKey) {
-
     console.error("[social] no profile row for the signed-in user");
 
     commit({ ready: true });
 
     return;
-
   }
 
   commit({ meId: meKey });
@@ -1187,27 +998,18 @@ async function startSession(user: User, token: number): Promise<void> {
   commit({ ready: true });
 
   subscribeRealtime(sb, user.id);
-
 }
 
-
-
 function handleUser(user: User | null): void {
-
   const id = user?.id ?? null;
 
   if (id === currentUser) {
-
     if (user) meEmail = user.email ?? meEmail;
 
     return;
-
   }
 
-
-
   if (!user) {
-
     currentUser = null;
 
     meUuid = null;
@@ -1217,10 +1019,7 @@ function handleUser(user: User | null): void {
     hydrateDemoState();
 
     return;
-
   }
-
-
 
   currentUser = id;
 
@@ -1249,109 +1048,65 @@ function handleUser(user: User | null): void {
   resetState(!user);
 
   if (user) void startSession(user, token);
-
 }
 
-
-
 function ensureStarted(): void {
-
   if (started || typeof window === "undefined") return;
 
   started = true;
 
   try {
-
     getSupabase().auth.onAuthStateChange((_event, session) => {
-
       // Never await Supabase calls inside this callback (supabase-js can deadlock); defer.
 
       const user = session?.user ?? null;
 
       setTimeout(() => handleUser(user), 0);
-
     });
-
   } catch (error) {
-
     console.error(error);
 
     resetState(true);
-
   }
-
 }
 
-
-
 function subscribe(listener: () => void): () => void {
-
   listeners.add(listener);
 
   ensureStarted();
 
   return () => {
-
     listeners.delete(listener);
-
   };
-
 }
 
-
-
 function getSnapshot(): SocialState {
-
   if (!currentUser && !state.meId && !state.ready && typeof window !== "undefined") {
-
     hydrateDemoState();
-
   }
 
   return state;
-
 }
-
-
 
 function getServerSnapshot(): SocialState {
-
   return INITIAL;
-
 }
-
-
 
 export function useSocial(): SocialState {
-
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-
 }
-
-
 
 /* ---------------------------------------------------------------- selectors */
 
-
-
 export function roleOf(s: SocialState, communityId: string, userId: string): CommunityRole | null {
-
   return s.members.find((m) => m.communityId === communityId && m.userId === userId)?.role ?? null;
-
 }
-
-
 
 export function isStaff(role: CommunityRole | null): boolean {
-
   return role === "owner" || role === "admin";
-
 }
 
-
-
 export function canPost(community: Community, role: CommunityRole | null): boolean {
-
   if (!role) return false;
 
   if (community.postingPolicy === "everyone") return true;
@@ -1359,33 +1114,87 @@ export function canPost(community: Community, role: CommunityRole | null): boole
   if (community.postingPolicy === "admins") return isStaff(role);
 
   return role === "owner";
-
 }
 
+/* Live databases hold legacy policy aliases ("members", "admins_only", "owner_only");
 
+ * normalize them to the three UI values. */
+
+function normalizePolicy(raw: string | null | undefined): PostingPolicy {
+  switch (raw) {
+    case "admins":
+
+    case "admins_only":
+
+    case "staff":
+      return "admins";
+
+    case "owner":
+
+    case "owner_only":
+
+    case "creator":
+      return "owner";
+
+    default:
+      return "everyone";
+  }
+}
+
+/** Legacy value kept as a fallback when the database rejects the canonical one. */
+
+const LEGACY_POLICY: Record<PostingPolicy, string> = {
+  everyone: "members",
+
+  admins: "admins_only",
+
+  owner: "owner_only",
+};
+
+function normalizeLocale(raw: string | null | undefined): CommunityLocale {
+  return raw === "en" || raw === "fr" || raw === "ar" ? raw : "";
+}
+
+/** Keeps only well-formed attachments that the database row may carry. */
+
+function sanitizeAttachments(raw: unknown): PostAttachment[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.flatMap((a) => {
+    const a2 = a as Partial<PostAttachment> | null;
+
+    if (!a2 || typeof a2.url !== "string" || !a2.url) return [];
+
+    const kind: PostAttachment["kind"] =
+      a2.kind === "image" || a2.kind === "video" || a2.kind === "audio" ? a2.kind : "file";
+
+    return [
+      {
+        kind,
+
+        url: a2.url,
+
+        name: typeof a2.name === "string" ? a2.name.slice(0, 200) : "",
+
+        mime: typeof a2.mime === "string" ? a2.mime.slice(0, 100) : "application/octet-stream",
+
+        size: typeof a2.size === "number" && a2.size >= 0 ? Math.round(a2.size) : 0,
+      },
+    ];
+  });
+}
 
 export function memberCount(s: SocialState, communityId: string): number {
-
   return s.members.filter((m) => m.communityId === communityId).length;
-
 }
-
-
 
 export function friendshipBetween(s: SocialState, a: string, b: string): Friendship | undefined {
-
   return s.friendships[pairKey(a, b)];
-
 }
-
-
 
 export type RelationStatus = "none" | "friends" | "sent" | "received";
 
-
-
 export function relationStatus(s: SocialState, me: string, other: string): RelationStatus {
-
   const f = friendshipBetween(s, me, other);
 
   if (!f) return "none";
@@ -1393,21 +1202,16 @@ export function relationStatus(s: SocialState, me: string, other: string): Relat
   if (f.status === "accepted") return "friends";
 
   return f.fromId === me ? "sent" : "received";
-
 }
-
-
 
 /** Finds people by display name or ID (case-insensitive, partial). Needs 2+ characters. */
 
 export function searchUsers(s: SocialState, meId: string, query: string): SocialUser[] {
-
   const q = query.trim().toLowerCase().replace(/^@/, "");
 
   if (q.length < 2) return [];
 
   const score = (u: SocialUser): number => {
-
     const id = u.id.toLowerCase();
 
     const name = u.displayName.toLowerCase();
@@ -1419,49 +1223,36 @@ export function searchUsers(s: SocialState, meId: string, query: string): Social
     if (name.startsWith(q) || id.startsWith(q)) return 2;
 
     return 3;
-
   };
 
   return Object.values(s.users)
 
     .filter(
-
       (u) =>
-
-        u.id !== meId && (u.displayName.toLowerCase().includes(q) || u.id.toLowerCase().includes(q)),
-
+        u.id !== meId &&
+        (u.displayName.toLowerCase().includes(q) || u.id.toLowerCase().includes(q)),
     )
 
     .sort((a, b) => score(a) - score(b) || a.displayName.localeCompare(b.displayName))
 
     .slice(0, 30);
-
 }
 
-
-
 export function friendsOf(s: SocialState, me: string): SocialUser[] {
-
   return Object.values(s.friendships)
 
     .filter((f) => f.status === "accepted" && (f.fromId === me || f.toId === me))
 
     .flatMap((f) => {
-
       const user = s.users[f.fromId === me ? f.toId : f.fromId];
 
       return user ? [user] : [];
-
     })
 
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
-
 }
 
-
-
 export function incomingRequests(s: SocialState, me: string): SocialUser[] {
-
   return Object.values(s.friendships)
 
     .filter((f) => f.status === "pending" && f.toId === me)
@@ -1469,19 +1260,13 @@ export function incomingRequests(s: SocialState, me: string): SocialUser[] {
     .sort((a, b) => b.createdAt - a.createdAt)
 
     .flatMap((f) => {
-
       const user = s.users[f.fromId];
 
       return user ? [user] : [];
-
     });
-
 }
 
-
-
 export function outgoingRequests(s: SocialState, me: string): SocialUser[] {
-
   return Object.values(s.friendships)
 
     .filter((f) => f.status === "pending" && f.fromId === me)
@@ -1489,19 +1274,13 @@ export function outgoingRequests(s: SocialState, me: string): SocialUser[] {
     .sort((a, b) => b.createdAt - a.createdAt)
 
     .flatMap((f) => {
-
       const user = s.users[f.toId];
 
       return user ? [user] : [];
-
     });
-
 }
 
-
-
 export interface ThreadSummary {
-
   otherId: string;
 
   other: SocialUser | undefined;
@@ -1509,25 +1288,16 @@ export interface ThreadSummary {
   last: DirectMessage;
 
   unread: number;
-
 }
-
-
 
 function otherOf(threadId: string, me: string): string {
-
   return threadId.split("|").find((id) => id !== me) ?? "";
-
 }
 
-
-
 export function listThreads(s: SocialState, me: string): ThreadSummary[] {
-
   const byThread = new Map<string, DirectMessage[]>();
 
   for (const m of s.messages) {
-
     if (!m.threadId.split("|").includes(me)) continue;
 
     const list = byThread.get(m.threadId) ?? [];
@@ -1535,13 +1305,11 @@ export function listThreads(s: SocialState, me: string): ThreadSummary[] {
     list.push(m);
 
     byThread.set(m.threadId, list);
-
   }
 
   const threads: ThreadSummary[] = [];
 
   for (const [threadId, list] of byThread) {
-
     const last = list[list.length - 1];
 
     if (!last) continue;
@@ -1551,7 +1319,6 @@ export function listThreads(s: SocialState, me: string): ThreadSummary[] {
     const otherId = otherOf(threadId, me);
 
     threads.push({
-
       otherId,
 
       other: s.users[otherId],
@@ -1559,38 +1326,23 @@ export function listThreads(s: SocialState, me: string): ThreadSummary[] {
       last,
 
       unread: list.filter((m) => m.fromId !== me && m.at > readAt).length,
-
     });
-
   }
 
   return threads.sort((a, b) => b.last.at - a.last.at);
-
 }
 
-
-
 export function threadMessages(s: SocialState, me: string, otherId: string): DirectMessage[] {
-
   const id = pairKey(me, otherId);
 
   return s.messages.filter((m) => m.threadId === id);
-
 }
-
-
 
 export function unreadTotal(s: SocialState, me: string): number {
-
   return listThreads(s, me).reduce((sum, t) => sum + t.unread, 0);
-
 }
 
-
-
 /* ------------------------------------------------------------------ identity */
-
-
 
 /**
 
@@ -1603,35 +1355,24 @@ export function unreadTotal(s: SocialState, me: string): number {
  */
 
 export function useMe(): SocialUser | null {
-
   const social = useSocial();
 
   if (!social.ready || !social.meId) return null;
 
   return social.users[social.meId] ?? null;
-
 }
-
-
 
 /* ------------------------------------------------------------------- actions */
 
-
-
 interface Session {
-
   sb: SupabaseClient;
 
   /** The auth user id from the session. The only identity the server trusts. */
 
   me: string;
-
 }
 
-
-
 async function session(notSignedIn = "Sign in to continue."): Promise<ActionResult<Session>> {
-
   ensureStarted();
 
   const sb = getSupabase();
@@ -1643,57 +1384,39 @@ async function session(notSignedIn = "Sign in to continue."): Promise<ActionResu
   if (!user) return fail(notSignedIn);
 
   return ok({ sb, me: user.id });
-
 }
 
-
-
 function validateCommunityFields(input: {
-
   name: string;
 
   description: string;
-
 }): ActionResult<{ name: string; description: string }> {
-
   const name = input.name.trim();
 
   const description = input.description.trim();
 
   if (name.length < LIMITS.name.min)
-
     return fail(`Give the community a name of at least ${LIMITS.name.min} characters.`);
 
   if (name.length > LIMITS.name.max)
-
     return fail(`The name can be at most ${LIMITS.name.max} characters.`);
 
   if (description.length < LIMITS.description.min)
-
     return fail(`Describe the community in at least ${LIMITS.description.min} characters.`);
 
   if (description.length > LIMITS.description.max)
-
     return fail(`The description can be at most ${LIMITS.description.max} characters.`);
 
   return ok({ name, description });
-
 }
 
-
-
 export interface JoinResult {
-
   communityId: string;
 
   outcome: JoinOutcome;
-
 }
 
-
-
 export interface CommunityInput {
-
   name: string;
 
   description: string;
@@ -1706,9 +1429,10 @@ export interface CommunityInput {
 
   hideMembers: boolean;
 
+  /** Language the community belongs to ("" = shown in every language). */
+
+  locale?: CommunityLocale;
 }
-
-
 
 /** Conversations being marked read, and when marking last failed (to avoid retry loops). */
 
@@ -1718,18 +1442,12 @@ const markFailures = new Map<string, number>();
 
 const MARK_RETRY_MS = 30_000;
 
-
-
 export const socialActions = {
-
   /* ---- people ---- */
-
-
 
   /** Finds someone by public id (for example from /messages?to=COVA-XXXXXX) and caches them. */
 
   async lookupUser(publicId: string): Promise<SocialUser | null> {
-
     const s = await session();
 
     if (!s.ok || !publicId) return null;
@@ -1737,10 +1455,7 @@ export const socialActions = {
     await resolveUuid(s.value.sb, publicId);
 
     return people.get(publicId) ?? null;
-
   },
-
-
 
   /**
 
@@ -1751,7 +1466,6 @@ export const socialActions = {
    */
 
   async searchPeople(query: string): Promise<void> {
-
     const s = await session();
 
     if (!s.ok || query.trim().replace(/^@/, "").length < 2) return;
@@ -1763,17 +1477,11 @@ export const socialActions = {
     registerProfiles((data ?? []) as ProfileRow[]);
 
     commit({ users: usersSnapshot() });
-
   },
-
-
 
   /* ---- friends ---- */
 
-
-
   async sendFriendRequest(me: string, otherId: string): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -1793,13 +1501,9 @@ export const socialActions = {
     await refresh("friends");
 
     return ok(undefined);
-
   },
 
-
-
   async respondFriendRequest(me: string, otherId: string, accept: boolean): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -1811,9 +1515,7 @@ export const socialActions = {
     if (!other) return fail("No request to answer.");
 
     const query = accept
-
       ? s.value.sb.from("friendships").update({ status: "accepted" })
-
       : s.value.sb.from("friendships").delete();
 
     // RLS only lets the person who was asked answer, so any other row matches nothing.
@@ -1835,15 +1537,11 @@ export const socialActions = {
     await refresh("friends");
 
     return ok(undefined);
-
   },
-
-
 
   /** Cancels a request you sent, or removes an existing friend. */
 
   async removeFriendship(me: string, otherId: string): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -1871,7 +1569,6 @@ export const socialActions = {
     if (!f) return fail("You are not connected.");
 
     if (f.status === "pending" && f.from_id !== mine)
-
       return fail("Use decline for requests sent to you.");
 
     const del = await s.value.sb.from("friendships").delete().eq("id", f.id).select("id");
@@ -1881,33 +1578,23 @@ export const socialActions = {
     await refresh("friends");
 
     return ok(undefined);
-
   },
-
-
 
   /* ---- direct messages ---- */
 
-
-
   async sendDirectMessage(me: string, otherId: string, text: string): Promise<ActionResult> {
-
     const body = text.trim();
 
     if (!body) return fail("Write a message first.");
 
     if (body.length > LIMITS.text.max)
-
       return fail(`Messages can be at most ${LIMITS.text.max} characters.`);
 
     if (otherId === me) return fail("You can't message yourself.");
 
-
-
     const s = await session();
 
     if (!s.ok) {
-
       const meKey = state.meId ?? demoCurrentUser.id;
 
       const threadId = pairKey(meKey, otherId);
@@ -1917,18 +1604,13 @@ export const socialActions = {
       const messageId = `demo-${at}`;
 
       commit({
-
         messages: [...state.messages, { id: messageId, threadId, fromId: meKey, text: body, at }],
 
         reads: { ...state.reads, [`${meKey}:${threadId}`]: at },
-
       });
 
       return ok(undefined);
-
     }
-
-
 
     const other = await resolveUuid(s.value.sb, otherId);
 
@@ -1959,29 +1641,21 @@ export const socialActions = {
     const at = Date.parse(row.created_at);
 
     if (!state.messages.some((m) => m.id === row.id)) {
-
       commit({
-
         messages: [...state.messages, { id: row.id, threadId, fromId: meKey, text: row.body, at }],
 
         reads: { ...state.reads, [`${meKey}:${threadId}`]: at },
-
       });
-
     }
 
     void s.value.sb.rpc("mark_thread_read", { p_other: other });
 
     return ok(undefined);
-
   },
-
-
 
   /** Marks a conversation as read. Does nothing (and writes nothing) when it already is. */
 
   markThreadRead(me: string, otherId: string): void {
-
     void me;
 
     const meKey = state.meId;
@@ -2002,18 +1676,12 @@ export const socialActions = {
 
     markPending.add(threadId);
 
-
-
     const lastAt = thread.reduce((max, m) => Math.max(max, m.at), 0);
 
     commit({ reads: { ...state.reads, [`${meKey}:${threadId}`]: Math.max(Date.now(), lastAt) } });
 
-
-
     void (async () => {
-
       try {
-
         const s = await session();
 
         const other = s.ok ? await resolveUuid(s.value.sb, otherId) : null;
@@ -2025,55 +1693,30 @@ export const socialActions = {
         if (error) throw new Error(error.message);
 
         markFailures.delete(threadId);
-
       } catch {
-
         markFailures.set(threadId, Date.now());
 
         void refresh("messages"); // roll the optimistic mark back to what the server has
-
       } finally {
-
         markPending.delete(threadId);
-
       }
-
     })();
-
   },
-
-
 
   /* ---- communities: create and edit ---- */
 
-
-
   async createCommunity(me: string, input: CommunityInput): Promise<ActionResult<string>> {
-
     void me;
-
-
 
     const fields = validateCommunityFields(input);
 
     if (!fields.ok) return fail(fields.error);
 
-
-
     const s = await session("Sign in to create a community.");
 
     if (!s.ok) return fail(s.error);
 
-
-
-    const postPolicy =
-
-      input.postingPolicy === "owner" ? "owner_only" : "admins_only";
-
-
-
-    const { data, error } = await s.value.sb.rpc("create_community", {
-
+    const rpcArgs = (postPolicy: string) => ({
       p_name: fields.value.name,
 
       p_description: fields.value.description,
@@ -2083,27 +1726,47 @@ export const socialActions = {
       p_visibility: input.visibility,
 
       p_post_policy: postPolicy,
-
     });
 
+    // The canonical policy values first; legacy databases that only accept the old
 
+    // aliases (members / admins_only / owner_only) get a second try.
+
+    let { data, error } = await s.value.sb.rpc("create_community", rpcArgs(input.postingPolicy));
+
+    if (error) {
+      const retry = await s.value.sb.rpc(
+        "create_community",
+        rpcArgs(LEGACY_POLICY[input.postingPolicy]),
+      );
+
+      data = retry.data;
+
+      error = retry.error;
+    }
 
     if (error) return fail(describe(error));
 
     if (typeof data !== "string" || !data) return fail(GENERIC_ERROR);
 
+    // Best effort: tag the community with its language. Fails silently when the
 
+    // locale column does not exist yet (migration not applied).
+
+    if (input.locale) {
+      await s.value.sb.from("spaces").update({ locale: input.locale }).eq("id", data);
+    }
 
     await refresh("communities");
 
     return ok(data);
-
   },
 
-
-
-  
-  async updateCommunity(me: string, communityId: string, input: CommunityInput): Promise<ActionResult> {
+  async updateCommunity(
+    me: string,
+    communityId: string,
+    input: CommunityInput,
+  ): Promise<ActionResult> {
     void me;
     const s = await session();
     if (!s.ok) return fail(s.error);
@@ -2111,21 +1774,32 @@ export const socialActions = {
     const fields = validateCommunityFields(input);
     if (!fields.ok) return fail(fields.error);
 
-    const postPolicy =
-      input.postingPolicy === "owner" ? "owner_only" : "admins_only";
+    const updateFields = (postPolicy: string) => ({
+      name: fields.value.name,
+      description: fields.value.description,
+      category: input.category || "Other",
+      visibility: input.visibility,
+      post_policy: postPolicy,
+    });
 
-    const { data, error } = await s.value.sb
+    // Canonical values first, legacy aliases as a fallback for older databases.
+    let { data, error } = await s.value.sb
       .from("spaces")
-      .update({
-        name: fields.value.name,
-        description: fields.value.description,
-        category: input.category || "Other",
-        visibility: input.visibility,
-        post_policy: postPolicy,
-      })
+      .update(updateFields(input.postingPolicy))
       .eq("id", communityId)
       .eq("kind", "community")
       .select("id");
+
+    if (error) {
+      const retry = await s.value.sb
+        .from("spaces")
+        .update(updateFields(LEGACY_POLICY[input.postingPolicy]))
+        .eq("id", communityId)
+        .eq("kind", "community")
+        .select("id");
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) return fail(describe(error));
     if (!data || data.length === 0) {
@@ -2136,14 +1810,18 @@ export const socialActions = {
       );
     }
 
+    // Best effort language tag; ignored when the locale column is not there yet.
+    if (input.locale !== undefined) {
+      await s.value.sb
+        .from("spaces")
+        .update({ locale: input.locale || null })
+        .eq("id", communityId);
+    }
+
     await refresh("communities");
     return ok(undefined);
   },
 
-
-
-
-  
   async regenerateJoinCode(me: string, communityId: string): Promise<ActionResult<string>> {
     void me;
     const s = await session();
@@ -2171,10 +1849,6 @@ export const socialActions = {
     return ok(data);
   },
 
-
-
-
-  
   async deleteCommunity(me: string, communityId: string): Promise<ActionResult> {
     void me;
     const s = await session();
@@ -2201,16 +1875,10 @@ export const socialActions = {
     return ok(undefined);
   },
 
-
-
-
   /* ---- communities: joining ---- */
-
-
 
   /** Joins a public community directly. Private ones need an invite code. */
 
-  
   async joinCommunity(me: string, communityId: string): Promise<ActionResult<JoinOutcome>> {
     void me;
     const s = await session("Sign in to join a community.");
@@ -2223,8 +1891,7 @@ export const socialActions = {
       return ok<JoinOutcome>("already-member");
     }
 
-    const privateMessage =
-      "This community is private. Enter its invite code to ask for access.";
+    const privateMessage = "This community is private. Enter its invite code to ask for access.";
 
     if (c.visibility === "private") return fail(privateMessage);
 
@@ -2254,8 +1921,6 @@ export const socialActions = {
     return ok<JoinOutcome>("joined");
   },
 
-
-
   /**
 
    * Uses an invite code. Public communities admit you right away; private ones create a request
@@ -2264,7 +1929,6 @@ export const socialActions = {
 
    */
 
-  
   async joinByCode(me: string, rawCode: string): Promise<ActionResult<JoinResult>> {
     void me;
     const s = await session("Sign in to join a community.");
@@ -2292,48 +1956,39 @@ export const socialActions = {
     return ok(result as unknown as JoinResult);
   },
 
+  async cancelJoinRequest(me: string, communityId: string): Promise<ActionResult> {
+    void me;
 
+    const s = await session();
+    if (!s.ok) return fail(s.error);
 
+    const { data: space, error: spaceError } = await s.value.sb
+      .from("spaces")
+      .select("id")
+      .eq("id", communityId)
+      .eq("kind", "community")
+      .maybeSingle();
 
-  async cancelJoinRequest(
-  me: string,
-  communityId: string,
-): Promise<ActionResult> {
-  void me;
+    if (spaceError) return fail(describe(spaceError));
+    if (!space) return fail("Community not found.");
 
-  const s = await session();
-  if (!s.ok) return fail(s.error);
+    const { data, error } = await s.value.sb
+      .from("space_join_requests")
+      .delete()
+      .eq("space_id", communityId)
+      .eq("user_id", s.value.me)
+      .eq("status", "pending")
+      .select("id");
 
-  const { data: space, error: spaceError } = await s.value.sb
-    .from("spaces")
-    .select("id")
-    .eq("id", communityId)
-    .eq("kind", "community")
-    .maybeSingle();
+    if (error) return fail(describe(error));
+    if (!data || data.length === 0) {
+      return fail("No pending request.");
+    }
 
-  if (spaceError) return fail(describe(spaceError));
-  if (!space) return fail("Community not found.");
+    await refresh("communities");
+    return ok(undefined);
+  },
 
-  const { data, error } = await s.value.sb
-    .from("space_join_requests")
-    .delete()
-    .eq("space_id", communityId)
-    .eq("user_id", s.value.me)
-    .eq("status", "pending")
-    .select("id");
-
-  if (error) return fail(describe(error));
-  if (!data || data.length === 0) {
-    return fail("No pending request.");
-  }
-
-  await refresh("communities");
-  return ok(undefined);
-},
-
-
-
-  
   async leaveCommunity(me: string, communityId: string): Promise<ActionResult> {
     void me;
     const s = await session();
@@ -2343,9 +1998,7 @@ export const socialActions = {
     if (!role) return fail("You are not a member.");
 
     if (role === "owner") {
-      return fail(
-        "The creator can't leave. Delete the community from its settings instead.",
-      );
+      return fail("The creator can't leave. Delete the community from its settings instead.");
     }
 
     const { data: space, error: lookupError } = await s.value.sb
@@ -2368,15 +2021,9 @@ export const socialActions = {
     return ok(undefined);
   },
 
-
-
-
   /* ---- communities: moderation ---- */
 
-
-
   async decideJoinRequest(me: string, requestId: string, approve: boolean): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -2384,11 +2031,9 @@ export const socialActions = {
     if (!s.ok) return fail(s.error);
 
     const { error } = await s.value.sb.rpc("decide_join_request", {
-
       p_request: requestId,
 
       p_approve: approve,
-
     });
 
     if (error) return fail(describe(error));
@@ -2396,13 +2041,9 @@ export const socialActions = {
     await refresh("communities");
 
     return ok(undefined);
-
   },
 
-
-
   async removeMember(me: string, communityId: string, userId: string): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -2426,31 +2067,24 @@ export const socialActions = {
     if (userId === meKey) return fail("Use Leave to remove yourself.");
 
     if (targetRole === "admin" && myRole !== "owner")
-
       return fail("Only the creator can remove an admin.");
 
     const target = await resolveUuid(s.value.sb, userId);
 
     if (!target) return fail("That person is not a member.");
 
+    const { error } = await s.value.sb.rpc("remove_space_member", {
+      p_space: communityId,
+      p_user: target,
+    });
 
-const { error } = await s.value.sb.rpc("remove_space_member", {
-  p_space: communityId,
-  p_user: target,
-});
+    if (error) return fail(describe(error ?? undefined));
 
-if (error) return fail(describe(error ?? undefined));
-
-await refresh("communities");
-return ok(undefined);
-
-
+    await refresh("communities");
+    return ok(undefined);
   },
 
-
-
   async setMemberRole(
-
     me: string,
 
     communityId: string,
@@ -2458,9 +2092,7 @@ return ok(undefined);
     userId: string,
 
     role: "admin" | "member",
-
   ): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -2470,7 +2102,6 @@ return ok(undefined);
     const meKey = state.meId ?? "";
 
     if (roleOf(state, communityId, meKey) !== "owner")
-
       return fail("Only the creator can assign admins.");
 
     const targetRole = roleOf(state, communityId, userId);
@@ -2483,89 +2114,111 @@ return ok(undefined);
 
     if (!target) return fail("That person is not a member.");
 
+    const { error } = await s.value.sb.rpc("set_space_role", {
+      p_space: communityId,
+      p_user: target,
+      p_role: role,
+    });
 
-const { error } = await s.value.sb.rpc("set_space_role", {
-  p_space: communityId,
-  p_user: target,
-  p_role: role,
-});
+    if (error) return fail(describe(error ?? undefined));
 
-if (error) return fail(describe(error ?? undefined));
-
-await refresh("communities");
-return ok(undefined);
-
-
+    await refresh("communities");
+    return ok(undefined);
   },
-
-
 
   /* ---- communities: posts ---- */
 
+  async postToCommunity(
+    me: string,
+    communityId: string,
+    text: string,
+    attachments: PostAttachment[] = [],
+  ): Promise<ActionResult> {
+    void me;
 
+    const s = await session();
+    if (!s.ok) return fail(s.error);
 
-  
-async postToCommunity(
-  me: string,
-  communityId: string,
-  text: string,
-): Promise<ActionResult> {
-  void me;
+    const c = state.communities[communityId];
+    if (!c) return fail("Community not found.");
 
-  const s = await session();
-  if (!s.ok) return fail(s.error);
+    const role = state.meId ? roleOf(state, communityId, state.meId) : null;
 
-  const c = state.communities[communityId];
-  if (!c) return fail("Community not found.");
+    if (!role) return fail("Join this community to post.");
 
-  const role = state.meId
-    ? roleOf(state, communityId, state.meId)
-    : null;
+    if (!canPost(c, role)) {
+      return fail(`Posting blocked by the app. Role: ${role}; policy: ${c.postingPolicy}.`);
+    }
 
-  if (!role) return fail("Join this community to post.");
+    const body = text.trim();
 
-  if (!canPost(c, role)) {
-    return fail(
-      `Posting blocked by the app. Role: ${role}; policy: ${c.postingPolicy}.`,
-    );
-  }
+    if (!body && attachments.length === 0) return fail("Write something first.");
 
-  const body = text.trim();
+    if (body.length > LIMITS.text.max) {
+      return fail(`Posts can be at most ${LIMITS.text.max} characters.`);
+    }
 
-  if (!body) return fail("Write something first.");
+    const insert = async (withAttachments: boolean) => {
+      const payload: Record<string, unknown> = {
+        space_id: communityId,
+        author_id: s.value.me,
+        body,
+      };
+      if (withAttachments && attachments.length > 0) {
+        payload.attachments = attachments;
+      }
+      return s.value.sb.from("space_posts").insert(payload);
+    };
 
-  if (body.length > LIMITS.text.max) {
-    return fail(`Posts can be at most ${LIMITS.text.max} characters.`);
-  }
+    // Send attachments only when the database has the column; text-only posts
+    // always work exactly as before.
+    let error: {
+      code?: string;
+      message: string;
+      details?: string | null;
+      hint?: string | null;
+    } | null = null;
+    if (attachments.length > 0 && spaceAttachmentsSupported) {
+      const first = await insert(true);
+      if (!first.error) {
+        await refresh("posts");
+        return ok(undefined);
+      }
+      error = first.error;
+      if (!/attachments|PGRST204|column/i.test(first.error.message ?? "")) {
+        console.error("[community] post insert failed", {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        return fail(describe(error, "Failed to publish the post."));
+      }
+      // Column missing (migration not applied) — tell the person clearly.
+      return fail(
+        "Media storage is not active yet. Ask the project owner to run the SQL setup (see docs/COMMUNITY_GROUPS_UPDATE.md), then try again.",
+      );
+    }
 
-  const { error } = await s.value.sb
-    .from("space_posts")
-    .insert({
-      space_id: communityId,
-      author_id: s.value.me,
-      body,
-    });
+    const res = await insert(false);
+    error = res.error;
 
-  if (error) {
-    console.error("[community] post insert failed", {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-    });
+    if (error) {
+      console.error("[community] post insert failed", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
 
-    return fail(describe(error, "Failed to publish the post."));
-  }
+      return fail(describe(error, "Failed to publish the post."));
+    }
 
-  await refresh("posts");
-  return ok(undefined);
-},
-
-
-
+    await refresh("posts");
+    return ok(undefined);
+  },
 
   async deletePost(me: string, postId: string): Promise<ActionResult> {
-
     void me;
 
     const s = await session();
@@ -2583,33 +2236,27 @@ async postToCommunity(
     const authorRole = roleOf(state, post.communityId, post.authorId);
 
     const allowed =
-
       post.authorId === meKey ||
-
       myRole === "owner" ||
-
       (myRole === "admin" && authorRole !== "owner" && authorRole !== "admin");
 
     if (!allowed) return fail("You can't delete this post.");
 
     const { data, error } = await s.value.sb
-  .from("space_posts")
-  .delete()
-  .eq("id", postId)
-  .eq("space_id", post.communityId)
-  .select("id");
+      .from("space_posts")
+      .delete()
+      .eq("id", postId)
+      .eq("space_id", post.communityId)
+      .select("id");
 
-if (error) return fail(describe(error));
-if (!data || data.length === 0) {
-  return fail("You can't delete this post.");
-}
+    if (error) return fail(describe(error));
+    if (!data || data.length === 0) {
+      return fail("You can't delete this post.");
+    }
 
-await refresh("posts");
-return ok(undefined);
-
+    await refresh("posts");
+    return ok(undefined);
   },
-
-
 
   /**
 
@@ -2621,37 +2268,34 @@ return ok(undefined);
 
    */
 
-  
-   async probeCommunity(communityId: string): Promise<void> {
-  if (state.communities[communityId] || !UUID_RE.test(communityId)) return;
+  async probeCommunity(communityId: string): Promise<void> {
+    if (state.communities[communityId] || !UUID_RE.test(communityId)) return;
 
-  const s = await session();
-  if (!s.ok) return;
+    const s = await session();
+    if (!s.ok) return;
 
-  const { data, error } = await s.value.sb
-    .from("spaces")
-    .select("id,visibility")
-    .eq("id", communityId)
-    .eq("kind", "community")
-    .maybeSingle();
+    const { data, error } = await s.value.sb
+      .from("spaces")
+      .select("id,visibility")
+      .eq("id", communityId)
+      .eq("kind", "community")
+      .maybeSingle();
 
-  if (error || !data) return;
+    if (error || !data) return;
 
-  if (data.visibility === "private") {
-    lockedCommunities.add(communityId);
-    commit({
-      communities: {
-        ...state.communities,
-        [communityId]: lockedPlaceholder(communityId),
-      },
-    });
-    return;
-  }
+    if (data.visibility === "private") {
+      lockedCommunities.add(communityId);
+      commit({
+        communities: {
+          ...state.communities,
+          [communityId]: lockedPlaceholder(communityId),
+        },
+      });
+      return;
+    }
 
-  await refresh("communities");
-},
-
-
+    await refresh("communities");
+  },
 
   /* ---- notifications ---- */
 

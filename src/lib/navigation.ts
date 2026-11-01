@@ -48,12 +48,11 @@ export const navSections: NavSection[] = [
   {
     titleKey: "nav.connect",
     items: [
-      { href: "/friends", labelKey: "nav.friends", icon: Heart },
       { href: "/community", labelKey: "nav.community", icon: Users },
       { href: "/messages", labelKey: "nav.messages", icon: MessageSquare },
       { href: "/voicing", label: { en: "Voicing", fr: "Voicing", ar: "Voicing" }, icon: Mic },
       { href: "/groups", labelKey: "nav.groups", icon: UsersRound },
-      { href: "/leaderboard", labelKey: "nav.leaderboard", icon: Trophy },
+      { href: "/friends", labelKey: "nav.friends", icon: Heart },
     ],
   },
   {
@@ -61,6 +60,7 @@ export const navSections: NavSection[] = [
     items: [
       { href: "/profile", labelKey: "nav.profile", icon: CircleUserRound },
       { href: "/notifications", labelKey: "nav.notifications", icon: Bell },
+      { href: "/leaderboard", labelKey: "nav.leaderboard", icon: Trophy },
       { href: "/settings", labelKey: "nav.settings", icon: Settings },
       { href: "/admin", labelKey: "nav.admin", icon: ShieldCheck },
     ],
