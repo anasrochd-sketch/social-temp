@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { SharePanel } from "@/components/common/SharePanel";
+import { VoiceCaptions } from "@/components/voicing/VoiceCaptions";
 import { JoinGate } from "@/components/spaces/JoinGate";
 import { SpacePanel } from "@/components/spaces/SpacePanel";
 import { AvatarStage } from "@/components/voicing/AvatarStage";
@@ -138,7 +138,7 @@ export function VoiceRoom({ code }: { code: string }) {
       </div>
       <div className="space-y-3">
         <SpacePanel view={view} meUid={uid} send={send} />
-        <SharePanel title={view.name} code={code} path={`/voicing/${code}`} />
+        <VoiceCaptions captions={view.captions} meUid={uid} send={send} />
       </div>
     </div>
   );

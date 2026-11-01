@@ -63,3 +63,23 @@ inside a voice room — and invite links do the joining automatically:
 Changed files: `GroupDetail.tsx` (+auto-join), `CommunityDetail.tsx` (+SharePanel, +auto-join),
 `VoiceRoom.tsx` (+SharePanel), and the two page files that forward `?join=`.
 No new migration is needed — it reuses the existing `join_codes` tables and RPCs.
+
+## Round 3: live voice translation (captions)
+
+Every voice room now has a "Live translation" panel. When a participant turns on
+transcription, their browser converts speech to text (Web Speech API) and the room
+relays each sentence; every other participant reads it translated into the interface
+language they picked (en / fr / ar).
+
+- Server: new `caption` action in `src/server/spaces-store.ts` (members only, voice
+  rooms only, last 30 lines kept in memory, no database change).
+- Translation: new `POST /api/translate` (`src/app/api/translate/route.ts`) with a
+  three-provider fallback chain, 5 s timeout, in-memory cache and a 60 req/min
+  per-IP limit. No API key, nothing to configure.
+- Client: `src/components/voicing/VoiceCaptions.tsx` (transcription toggle, live
+  list, automatic direction handling for Arabic), wired into `VoiceRoom.tsx`.
+- Browser support: transcription needs Chrome / Edge (Web Speech API); other
+  browsers still see everyone else's captions, just without sending their own.
+
+Also: removed the duplicated share box that round 2 added next to the voice-room
+panel — the panel itself already had one.

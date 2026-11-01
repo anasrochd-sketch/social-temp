@@ -33,6 +33,17 @@ export interface ChatMsg {
   text: string;
   at: number;
 }
+
+/** One spoken sentence turned into text and shared with the room (live captions). */
+export interface Caption {
+  id: string;
+  uid: string;
+  name: string;
+  /** Speech language of the speaker, e.g. "en-US". */
+  lang: string;
+  text: string;
+  at: number;
+}
 interface Space {
   code: string;
   kind: SpaceKind;
@@ -46,6 +57,7 @@ interface Space {
   denied: Set<string>;
   banned: Set<string>;
   messages: ChatMsg[];
+  captions: Caption[];
 }
 
 export interface SpaceSummary {
@@ -62,6 +74,7 @@ export interface SpaceView extends SpaceSummary {
   members: Member[];
   pending: PendingReq[]; // only filled for owner / moderators
   messages: ChatMsg[]; // only filled for members
+  captions: Caption[]; // latest live-translation lines, only filled for members
 }
 
 type Send = (event: string, data: unknown) => void;
@@ -121,6 +134,7 @@ export function viewFor(s: Space, uid: string): SpaceView {
     members: me ? [...s.members.values()] : [],
     pending: canModerate(me) ? [...s.pending.values()] : [],
     messages: me ? s.messages.slice(-200) : [],
+    captions: me ? s.captions.slice(-20) : [],
   };
 }
 
@@ -186,6 +200,7 @@ export function createSpace(input: {
     denied: new Set(),
     banned: new Set(),
     messages: [],
+    captions: [],
   };
   hub.spaces.set(s.code, s);
   return summary(s);
@@ -202,6 +217,7 @@ export interface ActionInput {
   isPublic?: boolean;
   muted?: boolean;
   text?: string;
+  lang?: string;
   to?: string;
   payload?: unknown;
 }
@@ -308,7 +324,14 @@ export function act(
       hub.spaces.delete(s.code);
       return {
         ok: true,
-        view: { ...summary(s), status: "none", members: [], pending: [], messages: [] },
+        view: {
+          ...summary(s),
+          status: "none",
+          members: [],
+          pending: [],
+          messages: [],
+          captions: [],
+        },
       };
     }
     case "update": {
@@ -329,6 +352,23 @@ export function act(
         at: Date.now(),
       });
       if (s.messages.length > 500) s.messages.splice(0, s.messages.length - 500);
+      return done();
+    }
+    case "caption": {
+      // Live-translation line from a member of a voice room, relayed to everyone.
+      if (!me || s.kind !== "voice") return { ok: false, error: "forbidden" };
+      const text = clean(a.text, 300);
+      if (!text) return { ok: false, error: "forbidden" };
+      const caption: Caption = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        uid,
+        name: me.name,
+        lang: clean(a.lang, 12) || "unknown",
+        text,
+        at: Date.now(),
+      };
+      s.captions.push(caption);
+      if (s.captions.length > 30) s.captions.splice(0, s.captions.length - 30);
       return done();
     }
     case "signal": {

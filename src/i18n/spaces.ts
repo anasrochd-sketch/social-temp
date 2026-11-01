@@ -99,6 +99,14 @@ const en = {
   "lb.b.voice": "Voicing minutes",
   "lb.b.hosted": "Rooms and groups created",
   "lb.b.chat": "Group messages",
+  "cap.title": "Live translation",
+  "cap.hint": "Turn on transcription and everyone reads what you say in their own language.",
+  "cap.start": "Transcribe my speech",
+  "cap.stop": "Stop transcription",
+  "cap.empty": "No captions yet. Spoken sentences appear here translated.",
+  "cap.unsupported": "This browser cannot transcribe speech. Try Chrome or Edge.",
+  "cap.denied": "Microphone access is blocked — allow it to transcribe.",
+  "cap.you": "You",
 } as const;
 export type SKey = keyof typeof en;
 
@@ -199,6 +207,14 @@ const fr: Record<SKey, string> = {
   "lb.b.voice": "Minutes Voicing",
   "lb.b.hosted": "Salles et groupes créés",
   "lb.b.chat": "Messages de groupe",
+  "cap.title": "Traduction en direct",
+  "cap.hint": "Activez la transcription et chacun lit ce que vous dites dans sa langue.",
+  "cap.start": "Transcrire ma voix",
+  "cap.stop": "Arrêter la transcription",
+  "cap.empty": "Aucune légende pour l'instant. Les phrases prononcées apparaîtront ici traduites.",
+  "cap.unsupported": "Ce navigateur ne peut pas transcrire la voix. Essayez Chrome ou Edge.",
+  "cap.denied": "Accès au micro refusé — autorisez-le pour transcrire.",
+  "cap.you": "Vous",
 };
 
 const ar: Record<SKey, string> = {
@@ -295,6 +311,14 @@ const ar: Record<SKey, string> = {
   "lb.b.voice": "دقائق Voicing",
   "lb.b.hosted": "الغرف والمجموعات المنشأة",
   "lb.b.chat": "رسائل المجموعات",
+  "cap.title": "ترجمة حية",
+  "cap.hint": "شغّل التعرف على الكلام وسيقرأ كل مشارك كلامك مترجمًا إلى لغته.",
+  "cap.start": "تفعيل التعرف على كلامي",
+  "cap.stop": "إيقاف التعرف على الكلام",
+  "cap.empty": "لا توجد ترجمات بعد. الجمل المنطوقة ستظهر هنا مترجمة.",
+  "cap.unsupported": "متصفحك لا يدعم التعرف على الكلام. جرّب Chrome أو Edge.",
+  "cap.denied": "تم حجب الميكروفون — اسمح بالوصول لتفعيل الترجمة.",
+  "cap.you": "أنت",
 };
 
 const catalogs: Record<Locale, Record<SKey, string>> = { en, fr, ar };
