@@ -1,0 +1,656 @@
+From 26be5450963cf3582299a45ac09dd7ae514d83f1 Mon Sep 17 00:00:00 2001
+From: Z <z@local>
+Date: Sun, 1 Nov 2026 22:35:54 +0000
+Subject: [PATCH 1/2] WhatsApp-style DMs: full chat page with media, voice
+ notes and attachments
+
+- /messages/[id] renders the new ChatClient: bubbles, realtime thread via
+  postgres_changes, read receipts (mark_thread_read), friend actions in header
+- direct_messages gains an attachments jsonb column (image/video/audio/file,
+  same shape as space_posts); body becomes optional when media is attached
+  (20261102000005_dm_rich_media.sql, idempotent, to_regclass-guarded)
+- media/voice notes upload through the existing MediaComposer + space-media
+  bucket under dm/
+- Friends list contact button now opens the chat directly; /messages?to=
+  deep links redirect to /messages/[id]; conversations list navigates there
+- new i18n keys (en/ar/fr): friends.contact, page.chat.*, chat.*
+---
+ src/app/(app)/messages/[id]/page.tsx          |  25 ++
+ src/app/(app)/messages/page.tsx               |   6 +-
+ src/components/friends/FriendsView.tsx        |   4 +-
+ src/components/messages/ChatClient.tsx        | 357 ++++++++++++++++++
+ src/components/messages/MessagesClient.tsx    |   5 +-
+ src/i18n/messages/ar.ts                       |   6 +
+ src/i18n/messages/en.ts                       |   6 +
+ src/i18n/messages/fr.ts                       |   6 +
+ .../20261102000005_dm_rich_media.sql          |  77 ++++
+ 9 files changed, 488 insertions(+), 4 deletions(-)
+ create mode 100644 src/app/(app)/messages/[id]/page.tsx
+ create mode 100644 src/components/messages/ChatClient.tsx
+ create mode 100644 supabase/migrations/20261102000005_dm_rich_media.sql
+
+diff --git a/src/app/(app)/messages/[id]/page.tsx b/src/app/(app)/messages/[id]/page.tsx
+new file mode 100644
+index 0000000..c8b5c9f
+--- /dev/null
++++ b/src/app/(app)/messages/[id]/page.tsx
+@@ -0,0 +1,25 @@
++import type { Metadata } from "next";
++import { Suspense } from "react";
++import { PageHeader } from "@/components/ui/PageHeader";
++import { Skeleton } from "@/components/ui/Skeleton";
++import { ChatClient } from "@/components/messages/ChatClient";
++import { getT } from "@/i18n/server";
++
++export const metadata: Metadata = { title: "Chat" };
++
++interface ChatPageProps {
++  params: Promise<{ id: string }>;
++}
++
++export default async function ChatPage({ params }: ChatPageProps) {
++  const [{ id }, t] = await Promise.all([params, getT()]);
++
++  return (
++    <>
++      <PageHeader title={t("page.chat.title")} description={t("page.chat.description")} />
++      <Suspense fallback={<Skeleton className="h-96 w-full" />}>
++        <ChatClient key={id} peerCode={id} />
++      </Suspense>
++    </>
++  );
++}
+diff --git a/src/app/(app)/messages/page.tsx b/src/app/(app)/messages/page.tsx
+index b1dc5fc..3a59443 100644
+--- a/src/app/(app)/messages/page.tsx
++++ b/src/app/(app)/messages/page.tsx
+@@ -1,4 +1,5 @@
+ import type { Metadata } from "next";
++import { redirect } from "next/navigation";
+ import { Suspense } from "react";
+ import { PageHeader } from "@/components/ui/PageHeader";
+ import { Skeleton } from "@/components/ui/Skeleton";
+@@ -14,11 +15,14 @@ interface MessagesPageProps {
+ export default async function MessagesPage({ searchParams }: MessagesPageProps) {
+   const [{ to }, t] = await Promise.all([searchParams, getT()]);
+ 
++  // Old deep links (?to=COVA-XXXXXX) now open the full chat page.
++  if (to) redirect(`/messages/${encodeURIComponent(to)}`);
++
+   return (
+     <>
+       <PageHeader title={t("page.messages.title")} description={t("page.messages.description")} />
+       <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+-        <MessagesClient initialTo={to} />
++        <MessagesClient />
+       </Suspense>
+     </>
+   );
+diff --git a/src/components/friends/FriendsView.tsx b/src/components/friends/FriendsView.tsx
+index 49ae6b7..9a40d9f 100644
+--- a/src/components/friends/FriendsView.tsx
++++ b/src/components/friends/FriendsView.tsx
+@@ -168,10 +168,10 @@ export function FriendsView() {
+           actions: (
+             <>
+               <Link
+-                href={`/messages?to=${u.id}`}
++                href={`/messages/${u.id}`}
+                 className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-cova-soft px-3 text-sm font-medium text-cova-ink hover:bg-cova-muted"
+               >
+-                <MessageSquare className="h-4 w-4" aria-hidden="true" /> {t("friends.message")}
++                <MessageSquare className="h-4 w-4" aria-hidden="true" /> {t("friends.contact")}
+               </Link>
+               <Button
+                 size="sm"
+diff --git a/src/components/messages/ChatClient.tsx b/src/components/messages/ChatClient.tsx
+new file mode 100644
+index 0000000..f3a380f
+--- /dev/null
++++ b/src/components/messages/ChatClient.tsx
+@@ -0,0 +1,357 @@
++"use client";
++
++import Link from "next/link";
++import { useRouter } from "next/navigation";
++import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
++import { ArrowLeft, MessageSquare, Send, UserPlus } from "lucide-react";
++import { MediaComposer } from "@/components/common/MediaComposer";
++import { PostAttachments } from "@/components/common/PostAttachments";
++import { Avatar } from "@/components/ui/Avatar";
++import { Badge } from "@/components/ui/Badge";
++import { Button } from "@/components/ui/Button";
++import { EmptyState } from "@/components/ui/EmptyState";
++import { Skeleton } from "@/components/ui/Skeleton";
++import { useToast } from "@/components/ui/Toast";
++import { useT } from "@/i18n/client";
++import { LIMITS, formatWhen, socialActions, useMe } from "@/lib/social-store";
++import { getSupabase } from "@/lib/supabase/client";
++import { useHydrated } from "@/lib/use-hydrated";
++import { cn } from "@/lib/utils";
++import type { PostAttachment } from "@/types/social";
++
++/**
++ * WhatsApp-style 1:1 chat for /messages/[id]. Self-contained: resolves the
++ * peer profile by COVA id, loads the direct_messages thread, keeps it live via
++ * postgres_changes, and sends text plus media attachments (image, camera,
++ * video, voice note, any file) through MediaComposer. Attachments ride in the
++ * direct_messages.attachments jsonb column (20261102000005_dm_rich_media.sql);
++ * if that column is not migrated yet, a text message still goes through.
++ */
++
++interface Peer {
++  uuid: string;
++  code: string;
++  name: string;
++  tone: "pale" | "soft" | "muted";
++  avatarUrl: string | null;
++  headline: string | null;
++}
++
++interface DmMessage {
++  id: string;
++  from_id: string;
++  body: string | null;
++  attachments: PostAttachment[];
++  created_at: string;
++}
++
++type Relation = "none" | "sent" | "received" | "friends";
++
++const PROFILE_COLUMNS = "id,display_name,tone,avatar_url,headline";
++
++/** Thread filter: every row between me and the peer, in both directions. */
++function threadFilter(meUuid: string, peerUuid: string): string {
++  return `and(from_id.eq.${meUuid},to_id.eq.${peerUuid}),and(from_id.eq.${peerUuid},to_id.eq.${meUuid})`;
++}
++
++export function ChatClient({ peerCode }: { peerCode: string }) {
++  const toast = useToast();
++  const t = useT();
++  const router = useRouter();
++  const hydrated = useHydrated();
++  const me = useMe();
++  const meId = me?.id ?? "";
++
++  const [meUuid, setMeUuid] = useState("");
++  const [peer, setPeer] = useState<Peer | null>(null);
++  const [failed, setFailed] = useState(false);
++  const [messages, setMessages] = useState<DmMessage[]>([]);
++  const [relation, setRelation] = useState<Relation>("none");
++  const [draft, setDraft] = useState("");
++  const [attachments, setAttachments] = useState<PostAttachment[]>([]);
++  const [composerEpoch, setComposerEpoch] = useState(0);
++  const [sending, setSending] = useState(false);
++  const endRef = useRef<HTMLDivElement>(null);
++
++  const peerUuid = peer?.uuid ?? "";
++  const firstName = peer?.name.split(" ")[0] ?? "";
++  const msgCount = messages.length;
++
++  // My auth uuid — needed for uuid-level thread queries.
++  useEffect(() => {
++    let alive = true;
++    void (async () => {
++      const { data } = await getSupabase().auth.getUser();
++      if (alive) setMeUuid(data.user?.id ?? "");
++    })();
++    return () => {
++      alive = false;
++    };
++  }, []);
++
++  // Resolve the peer profile by COVA id. The live database exposes user_code;
++  // older setups used public_id, so fall back to it when the first lookup
++  // errors or misses.
++  useEffect(() => {
++    let alive = true;
++    const frame = requestAnimationFrame(() => {
++      void (async () => {
++        const sb = getSupabase();
++        let row: Record<string, unknown> | null = null;
++        const first = await sb.from("profiles").select(PROFILE_COLUMNS).eq("user_code", peerCode).maybeSingle();
++        row = first.data;
++        if (first.error || !row) {
++          const second = await sb.from("profiles").select(PROFILE_COLUMNS).eq("public_id", peerCode).maybeSingle();
++          row = second.data;
++        }
++        if (!alive) return;
++        if (!row) {
++          setFailed(true);
++          return;
++        }
++        setPeer({
++          uuid: String(row.id),
++          code: peerCode,
++          name: String(row.display_name ?? "Unknown"),
++          tone: (row.tone as Peer["tone"]) ?? "soft",
++          avatarUrl: (row.avatar_url as string | null) ?? null,
++          headline: (row.headline as string | null) ?? null,
++        });
++      })();
++    });
++    return () => {
++      alive = false;
++      cancelAnimationFrame(frame);
++    };
++  }, [peerCode]);
++
++  // Load the whole thread (both directions), newest last.
++  const load = useCallback(async () => {
++    if (!meUuid || !peerUuid) return;
++    const { data, error } = await getSupabase()
++      .from("direct_messages")
++      .select("*")
++      .or(threadFilter(meUuid, peerUuid))
++      .order("created_at", { ascending: true })
++      .limit(500);
++    if (error) return;
++    setMessages(
++      ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
++        id: String(r.id),
++        from_id: String(r.from_id),
++        body: (r.body as string | null) ?? null,
++        attachments: Array.isArray(r.attachments) ? (r.attachments as PostAttachment[]) : [],
++        created_at: String(r.created_at),
++      })),
++    );
++  }, [meUuid, peerUuid]);
++
++  useEffect(() => {
++    const frame = requestAnimationFrame(() => {
++      void load();
++    });
++    return () => cancelAnimationFrame(frame);
++  }, [load]);
++
++  // Live updates: any insert/update touching my side of the conversation.
++  useEffect(() => {
++    if (!meUuid || !peerUuid) return;
++    const sb = getSupabase();
++    const channel = sb
++      .channel(`dm-thread-${meUuid.slice(0, 8)}-${peerUuid.slice(0, 8)}`)
++      .on(
++        "postgres_changes",
++        { event: "*", schema: "public", table: "direct_messages", filter: `from_id=eq.${meUuid}` },
++        () => void load(),
++      )
++      .on(
++        "postgres_changes",
++        { event: "*", schema: "public", table: "direct_messages", filter: `to_id=eq.${meUuid}` },
++        () => void load(),
++      )
++      .subscribe();
++    return () => {
++      void sb.removeChannel(channel);
++    };
++  }, [meUuid, peerUuid, load]);
++
++  // Read receipts: tell the server I have seen the thread up to now.
++  useEffect(() => {
++    if (!meUuid || !peerUuid) return;
++    void getSupabase().rpc("mark_thread_read", { p_other: peerUuid });
++  }, [meUuid, peerUuid, msgCount]);
++
++  // Friendship status drives the header action (add / accept / badge).
++  useEffect(() => {
++    if (!meUuid || !peerUuid) return;
++    void (async () => {
++      const { data } = await getSupabase()
++        .from("friendships")
++        .select("from_id,status")
++        .or(threadFilter(meUuid, peerUuid))
++        .limit(1);
++      const row = (data ?? [])[0] as { from_id: string; status: string } | undefined;
++      if (!row) {
++        setRelation("none");
++      } else if (row.status === "accepted") {
++        setRelation("friends");
++      } else if (row.status === "pending") {
++        setRelation(row.from_id === meUuid ? "sent" : "received");
++      } else {
++        setRelation("none");
++      }
++    })();
++  }, [meUuid, peerUuid]);
++
++  const lastAt = messages[msgCount - 1]?.created_at ?? "";
++  useEffect(() => {
++    endRef.current?.scrollIntoView({ block: "end" });
++  }, [peerUuid, lastAt, msgCount]);
++
++  async function send(e: FormEvent) {
++    e.preventDefault();
++    if (!peer || sending) return;
++    const body = draft.trim();
++    if (!body && attachments.length === 0) return;
++    setSending(true);
++
++    const sb = getSupabase();
++    const payload: Record<string, unknown> = { to_id: peer.uuid, body: body || null };
++    if (attachments.length > 0) payload.attachments = attachments;
++
++    let error: { message: string } | null = null;
++    const first = await sb.from("direct_messages").insert(payload);
++    error = first.error;
++    if (error && attachments.length > 0) {
++      // attachments column not migrated yet — still deliver the text.
++      const second = await sb.from("direct_messages").insert({ to_id: peer.uuid, body });
++      if (!second.error) toast.push(t("chat.mediaNeedsSetup"));
++      error = second.error;
++    }
++
++    setSending(false);
++    if (error) {
++      toast.push(error.message);
++      return;
++    }
++    setDraft("");
++    setAttachments([]);
++    setComposerEpoch((n) => n + 1); // remount MediaComposer empty
++    void load();
++  }
++
++  async function addFriend() {
++    if (!meId || !peer) return;
++    const result = await socialActions.sendFriendRequest(meId, peer.code);
++    toast.push(result.ok ? `${t("messages.requestSent")} ${firstName}` : result.error);
++    if (result.ok) setRelation("sent");
++  }
++
++  async function acceptRequest() {
++    if (!meId || !peer) return;
++    const result = await socialActions.respondFriendRequest(meId, peer.code, true);
++    toast.push(result.ok ? `${t("messages.youAreNowFriends")} ${firstName}` : result.error);
++    if (result.ok) setRelation("friends");
++  }
++
++  if (!hydrated) return <Skeleton className="h-96 w-full" />;
++
++  if (!me) {
++    return (
++      <EmptyState icon={MessageSquare} title={t("chat.signin")} description={""} />
++    );
++  }
++
++  if (failed) {
++    return (
++      <EmptyState
++        icon={MessageSquare}
++        title={t("chat.peerNotFound")}
++        description={peerCode}
++      />
++    );
++  }
++
++  if (!peer) return <Skeleton className="h-96 w-full" />;
++
++  return (
++    <div className="flex h-[calc(100vh-17rem)] min-h-[28rem] flex-col overflow-hidden rounded-xl border border-cova-line bg-white">
++      <div className="flex items-center gap-3 border-b border-cova-line px-4 py-3">
++        <button
++          type="button"
++          onClick={() => router.push("/messages")}
++          aria-label={t("messages.backToConversations")}
++          className="rounded-lg p-1.5 hover:bg-cova-pale"
++        >
++          <ArrowLeft className="h-5 w-5 rtl:-scale-x-100" aria-hidden="true" />
++        </button>
++        <Avatar name={peer.name} src={peer.avatarUrl ?? undefined} tone={peer.tone} size="sm" />
++        <div className="min-w-0 flex-1">
++          <p className="font-semibold">
++            <Link href={`/community/${peer.code}`} className="truncate hover:underline">
++              {peer.name}
++            </Link>
++          </p>
++          <p className="truncate text-xs text-cova-mute">{peer.headline || peer.code}</p>
++        </div>
++        {relation === "none" && (
++          <Button size="sm" variant="secondary" onClick={addFriend}>
++            <UserPlus className="h-4 w-4" aria-hidden="true" /> {t("messages.addFriend")}
++          </Button>
++        )}
++        {relation === "sent" && <Badge tone="outline">{t("messages.requestSent")}</Badge>}
++        {relation === "received" && (
++          <Button size="sm" onClick={acceptRequest}>
++            {t("messages.acceptRequest")}
++          </Button>
++        )}
++        {relation === "friends" && <Badge tone="soft">{t("messages.friends")}</Badge>}
++      </div>
++
++      <div className="flex-1 space-y-3 overflow-y-auto bg-cova-bg p-4">
++        {messages.length === 0 && (
++          <p className="text-center text-sm text-cova-mute">
++            {t("messages.noMessagesYet")} {firstName}.
++          </p>
++        )}
++        {messages.map((m) => {
++          const mine = m.from_id === meUuid;
++          return (
++            <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
++              <div
++                className={cn(
++                  "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
++                  mine ? "bg-cova-soft" : "border border-cova-line bg-white",
++                )}
++              >
++                {m.attachments.length > 0 && <PostAttachments attachments={m.attachments} />}
++                {m.body && <p className="whitespace-pre-line break-words">{m.body}</p>}
++                <p className="mt-1 text-[11px] text-cova-ink/70">
++                  {formatWhen(new Date(m.created_at).getTime())}
++                </p>
++              </div>
++            </div>
++          );
++        })}
++        <div ref={endRef} />
++      </div>
++
++      <form onSubmit={send} className="space-y-2 border-t border-cova-line p-3">
++        <MediaComposer key={composerEpoch} spaceId="dm" onChange={setAttachments} />
++        <div className="flex gap-2">
++          <input
++            aria-label={t("messages.message")}
++            value={draft}
++            maxLength={LIMITS.text.max}
++            onChange={(e) => setDraft(e.target.value)}
++            placeholder={`${t("messages.message")} ${firstName}`}
++            className="h-10 flex-1 rounded-lg border border-cova-line px-3 text-sm placeholder:text-cova-mute"
++          />
++          <Button type="submit" disabled={sending || (!draft.trim() && attachments.length === 0)}>
++            <Send className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" /> {t("messages.send")}
++          </Button>
++        </div>
++      </form>
++    </div>
++  );
++}
+diff --git a/src/components/messages/MessagesClient.tsx b/src/components/messages/MessagesClient.tsx
+index 54dd284..c33f08f 100644
+--- a/src/components/messages/MessagesClient.tsx
++++ b/src/components/messages/MessagesClient.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import Link from "next/link";
++import { useRouter } from "next/navigation";
+ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+ import { ArrowLeft, MessageSquare, Plus, Send, UserPlus, X } from "lucide-react";
+ import { Avatar } from "@/components/ui/Avatar";
+@@ -32,6 +33,7 @@ import type { SocialUser } from "@/types/social";
+ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+   const toast = useToast();
+   const t = useT();
++  const router = useRouter();
+   const hydrated = useHydrated();
+   const me = useMe();
+   const social = useSocial();
+@@ -97,7 +99,8 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+   if (!hydrated || !me) return <Skeleton className="h-96 w-full" />;
+ 
+   function open(id: string) {
+-    setSelectedId(id);
++    // Conversations now open in the full WhatsApp-style chat page.
++    router.push(`/messages/${encodeURIComponent(id)}`);
+     setComposing(false);
+     setPeopleQuery("");
+   }
+diff --git a/src/i18n/messages/ar.ts b/src/i18n/messages/ar.ts
+index 6183311..352e777 100644
+--- a/src/i18n/messages/ar.ts
++++ b/src/i18n/messages/ar.ts
+@@ -367,6 +367,7 @@ export const ar: Record<MessageKey, string> = {
+   "friends.searchLabel": "البحث عن أشخاص",
+   "friends.searchPlaceholder": "الاسم أو معرّف COVA",
+   "friends.message": "رسالة",
++  "friends.contact": "تواصل",
+   "friends.unfriend": "إزالة الصداقة",
+   "friends.accept": "قبول",
+   "friends.decline": "رفض",
+@@ -552,6 +553,11 @@ export const ar: Record<MessageKey, string> = {
+     "اعثر على طلاب لديهم أهداف ومهارات واهتمامات مماثلة. الملفات المعروضة هنا هي بيانات تجريبية.",
+   "page.messages.title": "الرسائل",
+   "page.messages.description": "محادثات خاصة مع الطلاب الآخرين.",
++  "page.chat.title": "محادثة",
++  "page.chat.description": "محادثة خاصة مع صديق.",
++  "chat.signin": "سجّل الدخول لبدء المحادثة.",
++  "chat.peerNotFound": "لم يتم العثور على هذا الشخص.",
++  "chat.mediaNeedsSetup": "تخزين الوسائط غير مفعّل بعد — أُرسل النص بدون المرفقات.",
+ 
+   "courses.title": "الدورات",
+   "courses.pageDescription": "استكشف الدورات وشارك معرفتك وتعلّم مع الطلاب الآخرين.",
+diff --git a/src/i18n/messages/en.ts b/src/i18n/messages/en.ts
+index d83ba2c..4568c74 100644
+--- a/src/i18n/messages/en.ts
++++ b/src/i18n/messages/en.ts
+@@ -381,6 +381,7 @@ export const en = {
+   "friends.searchLabel": "Search people",
+   "friends.searchPlaceholder": "Name or COVA ID",
+   "friends.message": "Message",
++  "friends.contact": "Chat",
+   "friends.unfriend": "Remove friend",
+   "friends.accept": "Accept",
+   "friends.decline": "Decline",
+@@ -576,6 +577,11 @@ export const en = {
+     "Find students with similar goals, skills and interests. Profiles shown here are sample data.",
+   "page.messages.title": "Messages",
+   "page.messages.description": "Private conversations with other students.",
++  "page.chat.title": "Chat",
++  "page.chat.description": "A private conversation with a friend.",
++  "chat.signin": "Sign in to start chatting.",
++  "chat.peerNotFound": "Person not found.",
++  "chat.mediaNeedsSetup": "Media storage is not active yet — the text was sent without attachments.",
+ 
+   "courses.title": "Courses",
+   "courses.pageDescription":
+diff --git a/src/i18n/messages/fr.ts b/src/i18n/messages/fr.ts
+index fa7fd80..181d7f4 100644
+--- a/src/i18n/messages/fr.ts
++++ b/src/i18n/messages/fr.ts
+@@ -387,6 +387,7 @@ export const fr: Record<MessageKey, string> = {
+   "friends.searchLabel": "Rechercher des personnes",
+   "friends.searchPlaceholder": "Nom ou identifiant COVA",
+   "friends.message": "Message",
++  "friends.contact": "Discuter",
+   "friends.unfriend": "Retirer des amis",
+   "friends.accept": "Accepter",
+   "friends.decline": "Refuser",
+@@ -582,6 +583,11 @@ export const fr: Record<MessageKey, string> = {
+     "Trouvez des étudiants avec des objectifs, compétences et centres d'intérêt similaires. Les profils affichés ici sont des données d'exemple.",
+   "page.messages.title": "Messages",
+   "page.messages.description": "Conversations privées avec d'autres étudiants.",
++  "page.chat.title": "Discussion",
++  "page.chat.description": "Une conversation priv\u00e9e avec un ami.",
++  "chat.signin": "Connectez-vous pour commencer \u00e0 discuter.",
++  "chat.peerNotFound": "Personne introuvable.",
++  "chat.mediaNeedsSetup": "Le stockage multim\u00e9dia n'est pas encore actif \u2014 le texte a \u00e9t\u00e9 envoy\u00e9 sans pi\u00e8ces jointes.",
+ 
+   "courses.title": "Cours",
+   "courses.pageDescription":
+diff --git a/supabase/migrations/20261102000005_dm_rich_media.sql b/supabase/migrations/20261102000005_dm_rich_media.sql
+new file mode 100644
+index 0000000..f7440c0
+--- /dev/null
++++ b/supabase/migrations/20261102000005_dm_rich_media.sql
+@@ -0,0 +1,77 @@
++-- ============================================================================
++-- 20261102000005_dm_rich_media.sql
++-- WhatsApp-style direct messages: image / video / audio (voice notes) / file
++-- attachments on direct_messages.
++--
++-- Media files themselves are uploaded to the existing public "space-media"
++-- bucket under the dm/ folder (same policies the group posts already use).
++--
++-- Idempotent and safe to run on the live database:
++--   * attachments column is added if missing (jsonb, default '[]')
++--   * the legacy body CHECK (NOT NULL + 1..2000 chars) is replaced by a
++--     relaxed one so attachment-only messages (body NULL) are allowed
++--   * a new CHECK requires at least one of body / attachments
++--   * the insert grant is extended to cover attachments
++--   * direct_messages re-added to the realtime publication if missing
++-- ============================================================================
++
++do $$
++declare
++  c text;
++begin
++  if to_regclass('public.direct_messages') is null then
++    raise notice 'direct_messages not found — nothing to do.';
++    return;
++  end if;
++
++  -- 1) attachments column (same shape as space_posts.attachments).
++  alter table public.direct_messages
++    add column if not exists attachments jsonb not null default '[]'::jsonb;
++
++  -- 2) Drop every legacy CHECK that constrains body, whatever its name is in
++  --    this database (direct_messages_not_self does not mention body and
++  --    survives).
++  for c in
++    select con.conname
++    from pg_catalog.pg_constraint con
++    where con.conrelid = 'public.direct_messages'::regclass
++      and con.contype = 'c'
++      and pg_get_constraintdef(con.oid) ilike '%body%'
++  loop
++    execute format('alter table public.direct_messages drop constraint %I', c);
++  end loop;
++
++  -- 3) body becomes optional so a message can carry only media.
++  alter table public.direct_messages alter column body drop not null;
++
++  -- 4) Fresh checks: optional body with same length rules, but never empty.
++  alter table public.direct_messages
++    add constraint direct_messages_body_check
++    check (body is null or char_length(btrim(body)) between 1 and 2000);
++
++  alter table public.direct_messages
++    add constraint direct_messages_content_check
++    check (body is not null or jsonb_array_length(attachments) > 0);
++
++  -- 5) Column-level grant: clients may now insert attachments alongside
++  --    to_id/body. from_id stays server-side (default auth.uid()).
++  grant insert (to_id, body, attachments) on public.direct_messages to authenticated;
++end
++$$;
++
++-- Realtime publication (defensive re-add, same guarded pattern as 20261012000002).
++do $$
++begin
++  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
++     and to_regclass('public.direct_messages') is not null
++     and not exists (
++       select 1 from pg_publication_tables
++       where pubname = 'supabase_realtime'
++         and schemaname = 'public'
++         and tablename = 'direct_messages'
++     )
++  then
++    alter publication supabase_realtime add table public.direct_messages;
++  end if;
++end
++$$;
+-- 
+2.47.3
+

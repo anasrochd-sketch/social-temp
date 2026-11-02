@@ -1,0 +1,480 @@
+From 9ffff5c8c1a62c959a5169231199f717df54f6a6 Mon Sep 17 00:00:00 2001
+From: Z Dev <dev@z.ai>
+Date: Sun, 1 Nov 2026 18:41:03 +0000
+Subject: [PATCH 2/2] Fix group join (join_space RPC + real errors), translate
+ community cards, invite button in header, real account identity in rooms
+
+---
+ docs/COMMUNITY_GROUPS_UPDATE.md               |  9 +++
+ src/components/community/CommunityCard.tsx    | 34 ++++++---
+ src/components/community/CommunityDetail.tsx  | 22 +++++-
+ src/components/groups/GroupDetail.tsx         | 32 ++++++--
+ src/i18n/messages/ar.ts                       | 11 +++
+ src/i18n/messages/en.ts                       | 11 +++
+ src/i18n/messages/fr.ts                       | 11 +++
+ src/lib/spaces-client.ts                      | 11 ++-
+ .../migrations/20261102000003_space_join.sql  | 74 +++++++++++++++++++
+ 9 files changed, 194 insertions(+), 21 deletions(-)
+ create mode 100644 supabase/migrations/20261102000003_space_join.sql
+
+diff --git a/docs/COMMUNITY_GROUPS_UPDATE.md b/docs/COMMUNITY_GROUPS_UPDATE.md
+index dbbc952..32f66ac 100644
+--- a/docs/COMMUNITY_GROUPS_UPDATE.md
++++ b/docs/COMMUNITY_GROUPS_UPDATE.md
+@@ -83,3 +83,12 @@ language they picked (en / fr / ar).
+ 
+ Also: removed the duplicated share box that round 2 added next to the voice-room
+ panel — the panel itself already had one.
++
++## Round 4: bug fixes
++
++| Problem | Fix |
++| --- | --- |
++| «تعذر الانضمام للمجموعة» (`Error joining group: {}`) | New `supabase/migrations/20261102000003_space_join.sql`: security-definer RPC `join_space(uuid)` + self-insert policy. Client calls the RPC first, falls back to the direct insert, and now surfaces the real database message instead of `{}`. **Run this SQL in Supabase.** |
++| Mixed English on Arabic screens (Public, Open community, 2 members, Pending) | `CommunityCard.tsx` fully translated via the catalog; fixed categories (Study/Project/...) translated too. |
++| Invite panel pushed the feed down | The invite/share panel is now a button in the community header (staff only) that opens a dialog. |
++| Room shows "Sam Rivera" instead of the account name | `useIdentity` now uses the signed-in profile (uuid + display name) first; demo settings only fill gaps. |
+diff --git a/src/components/community/CommunityCard.tsx b/src/components/community/CommunityCard.tsx
+index 410a6ac..fef75fe 100644
+--- a/src/components/community/CommunityCard.tsx
++++ b/src/components/community/CommunityCard.tsx
+@@ -12,10 +12,21 @@ import { Button, buttonStyles } from "@/components/ui/Button";
+ 
+ import { Card } from "@/components/ui/Card";
+ 
+-import { pluralize } from "@/lib/utils";
++import { useT } from "@/i18n/client";
++import type { MessageKey } from "@/i18n/translate";
+ 
+ import type { Community, CommunityRole } from "@/types/social";
+ 
++/** Fixed category list -> catalog keys, so the badge follows the interface language. */
++export const CATEGORY_LABEL_KEYS: Record<string, MessageKey> = {
++  Study: "community.cat.study",
++  Project: "community.cat.project",
++  Coding: "community.cat.coding",
++  Design: "community.cat.design",
++  Languages: "community.cat.languages",
++  Other: "community.cat.other",
++};
++
+ interface CommunityCardProps {
+   community: Community;
+ 
+@@ -41,6 +52,7 @@ export function CommunityCard({
+   onJoin,
+   pending = false,
+ }: CommunityCardProps) {
++  const t = useT();
+   const isPrivate = community.visibility === "private";
+ 
+   return (
+@@ -49,7 +61,11 @@ export function CommunityCard({
+ 
+       <div className="flex flex-1 flex-col p-5 sm:p-6">
+         <div className="flex flex-wrap items-center justify-between gap-3">
+-          <Badge tone="soft">{community.category}</Badge>
++          <Badge tone="soft">
++            {community.category
++              ? t(CATEGORY_LABEL_KEYS[community.category] ?? "community.cat.other")
++              : community.category}
++          </Badge>
+ 
+           <div className="flex flex-wrap items-center gap-2">
+             <span className="inline-flex items-center gap-1.5 rounded-full border border-cova-line bg-slate-50 px-2.5 py-1 text-xs font-medium text-cova-mute">
+@@ -59,7 +75,7 @@ export function CommunityCard({
+                 <Globe className="h-3.5 w-3.5" aria-hidden="true" />
+               )}
+ 
+-              {isPrivate ? "Private" : "Public"}
++              {isPrivate ? t("community.private") : t("community.public")}
+             </span>
+ 
+             {role && <RoleBadge role={role} />}
+@@ -90,13 +106,13 @@ export function CommunityCard({
+               <Users className="h-4 w-4" aria-hidden="true" />
+             </span>
+ 
+-            {pluralize(members, "member", "members")}
++            {t("community.membersCount", { n: members })}
+           </p>
+ 
+           {pending && (
+             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700">
+               <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+-              Pending
++              {t("community.pending")}
+             </span>
+           )}
+         </div>
+@@ -105,7 +121,7 @@ export function CommunityCard({
+           {pending ? (
+             <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+               <Clock className="mr-2 inline h-4 w-4" aria-hidden="true" />
+-              Waiting for approval
++              {t("community.waitingApproval")}
+             </p>
+           ) : role ? (
+             <Link
+@@ -113,13 +129,13 @@ export function CommunityCard({
+ 
+               className={`${buttonStyles({ variant: "secondary", size: "sm" })} flex w-full items-center justify-center rounded-xl transition-colors`}
+             >
+-              Open community
++              {t("community.openCommunity")}
+             </Link>
+           ) : (
+             <div className="flex gap-2">
+               {onJoin && !isPrivate && (
+                 <Button size="sm" onClick={onJoin}>
+-                  Join
++                  {t("community.joinAction")}
+                 </Button>
+               )}
+ 
+@@ -128,7 +144,7 @@ export function CommunityCard({
+ 
+                 className={`${buttonStyles({ variant: "secondary", size: "sm" })} flex flex-1 items-center justify-center rounded-xl transition-colors`}
+               >
+-                View community
++                {t("community.viewCommunity")}
+               </Link>
+             </div>
+           )}
+diff --git a/src/components/community/CommunityDetail.tsx b/src/components/community/CommunityDetail.tsx
+index ea28e8c..8cf2d35 100644
+--- a/src/components/community/CommunityDetail.tsx
++++ b/src/components/community/CommunityDetail.tsx
+@@ -3,7 +3,7 @@
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+-import { ArrowLeft, Globe, Lock, SearchX, Trash2, Users } from "lucide-react";
++import { ArrowLeft, Globe, Lock, SearchX, Trash2, UserPlus, Users } from "lucide-react";
+ import { MediaComposer } from "@/components/common/MediaComposer";
+ import { PostAttachments } from "@/components/common/PostAttachments";
+ import { SharePanel } from "@/components/common/SharePanel";
+@@ -20,6 +20,7 @@ import { Button, buttonStyles } from "@/components/ui/Button";
+ import { Card, CardBody } from "@/components/ui/Card";
+ import { EmptyState } from "@/components/ui/EmptyState";
+ import { TextField } from "@/components/ui/FormField";
++import { Modal } from "@/components/ui/Modal";
+ import { Skeleton } from "@/components/ui/Skeleton";
+ import { Tabs } from "@/components/ui/Tabs";
+ import { useToast } from "@/components/ui/Toast";
+@@ -155,6 +156,7 @@ export function CommunityDetail({
+   const [tab, setTab] = useState<TabName>("Feed");
+   const [draft, setDraft] = useState("");
+   const [attachments, setAttachments] = useState<PostAttachment[]>([]);
++  const [inviting, setInviting] = useState(false);
+   // Private communities you aren't in can't be read, so ask the server whether the id is one.
+   const [probed, setProbed] = useState(false);
+ 
+@@ -288,6 +290,16 @@ export function CommunityDetail({
+             </p>
+           </div>
+           <div className="flex gap-2">
++            {staff && (
++              <Button
++                variant="secondary"
++                onClick={() => setInviting(true)}
++                aria-label={t("community.invite")}
++              >
++                <UserPlus className="h-4 w-4" aria-hidden="true" />
++                {t("community.invite")}
++              </Button>
++            )}
+             {!role && (
+               <Button
+                 onClick={async () => {
+@@ -319,7 +331,11 @@ export function CommunityDetail({
+       </Card>
+ 
+       {staff && (
+-        <div className="mt-4">
++        <Modal
++          open={inviting}
++          onClose={() => setInviting(false)}
++          title={t("community.invite")}
++        >
+           <SharePanel
+             title={community.name}
+             spaceId={community.id}
+@@ -327,7 +343,7 @@ export function CommunityDetail({
+             path={`/community/${community.id}`}
+             canRegenerate={role === "owner"}
+           />
+-        </div>
++        </Modal>
+       )}
+ 
+       <div className="mt-6">
+diff --git a/src/components/groups/GroupDetail.tsx b/src/components/groups/GroupDetail.tsx
+index 8b2b0ee..66a3741 100644
+--- a/src/components/groups/GroupDetail.tsx
++++ b/src/components/groups/GroupDetail.tsx
+@@ -35,6 +35,10 @@ type GroupMessage = {
+ 
+ type MemberRole = "owner" | "admin" | "member";
+ 
++/** Supabase errors lose their message when thrown around — always surface a real text. */
++const errText = (err: unknown, fallback: string): string =>
++  err instanceof Error && err.message ? err.message : fallback;
++
+ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?: string }) {
+   const router = useRouter();
+   const t = useT();
+@@ -161,7 +165,7 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
+       await loadMessages(currentGroup.id);
+     } catch (err) {
+       console.error("Error loading group:", err);
+-      setError(err instanceof Error ? err.message : t("groupDetail.notFoundDesc"));
++      setError(errText(err, t("groupDetail.notFoundDesc")));
+     } finally {
+       setLoading(false);
+     }
+@@ -233,7 +237,7 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
+         },
+         () => {
+           void loadMessages(group.id).catch((err: unknown) => {
+-            setError(err instanceof Error ? err.message : t("groupDetail.postError"));
++            setError(errText(err, t("groupDetail.postError")));
+           });
+         },
+       )
+@@ -273,24 +277,40 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
+ 
+       const { data: authData, error: authError } = await supabase.auth.getUser();
+ 
+-      if (authError) throw authError;
++      if (authError) throw new Error(authError.message);
+       if (!authData.user) {
+         throw new Error(t("group.signInToJoin"));
+       }
+ 
++      // Preferred path: security-definer RPC (works no matter how RLS is configured).
++      const { data: rpcData, error: rpcError } = await supabase.rpc("join_space", {
++        p_space: group.id,
++      });
++
++      if (!rpcError && rpcData) {
++        const result = rpcData as { ok?: boolean; error?: string; outcome?: string };
++        if (result.ok === false) throw new Error(result.error || t("groupDetail.joinError"));
++        setNotice(
++          result.outcome === "requested" ? t("group.joinRequested") : t("groupDetail.joined"),
++        );
++        await loadGroup();
++        return;
++      }
++
++      // Older database without the RPC: direct insert.
+       const { error: joinError } = await supabase.from("space_members").insert({
+         space_id: group.id,
+         user_id: authData.user.id,
+         role: "member",
+       });
+ 
+-      if (joinError) throw joinError;
++      if (joinError) throw new Error(joinError.message);
+ 
+       setNotice(t("groupDetail.joined"));
+       await loadGroup();
+     } catch (err) {
+       console.error("Error joining group:", err);
+-      setError(err instanceof Error ? err.message : t("groupDetail.joinError"));
++      setError(errText(err, t("groupDetail.joinError")));
+     } finally {
+       setBusy(false);
+     }
+@@ -340,7 +360,7 @@ export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?
+       await loadMessages(group.id);
+     } catch (err) {
+       console.error("Error posting message:", err);
+-      setError(err instanceof Error ? err.message : t("groupDetail.postError"));
++      setError(errText(err, t("groupDetail.postError")));
+     } finally {
+       setBusy(false);
+     }
+diff --git a/src/i18n/messages/ar.ts b/src/i18n/messages/ar.ts
+index fa0ed46..6183311 100644
+--- a/src/i18n/messages/ar.ts
++++ b/src/i18n/messages/ar.ts
+@@ -827,6 +827,17 @@ export const ar: Record<MessageKey, string> = {
+   "community.postStaffOnly": "المالك والمديرون فقط يمكنهم النشر في هذا المجتمع.",
+   "community.joinToPost": "انضم إلى هذا المجتمع لتتمكن من النشر.",
+   "community.membersCount": "{n} عضو",
++  "community.pending": "قيد الانتظار",
++  "community.openCommunity": "فتح المجتمع",
++  "community.joinAction": "انضمام",
++  "community.viewCommunity": "عرض المجتمع",
++  "community.invite": "دعوة الأشخاص",
++  "community.cat.study": "دراسة",
++  "community.cat.project": "مشروع",
++  "community.cat.coding": "برمجة",
++  "community.cat.design": "تصميم",
++  "community.cat.languages": "لغات",
++  "community.cat.other": "أخرى",
+   "community.whoCanPost": "من يمكنه النشر",
+   "community.joinCommunity": "انضم إلى المجتمع",
+   "community.createdName": "تم إنشاء {name}",
+diff --git a/src/i18n/messages/en.ts b/src/i18n/messages/en.ts
+index a470be4..d83ba2c 100644
+--- a/src/i18n/messages/en.ts
++++ b/src/i18n/messages/en.ts
+@@ -857,6 +857,17 @@ export const en = {
+   "community.postStaffOnly": "Only the owner and admins can post in this community.",
+   "community.joinToPost": "Join this community to post.",
+   "community.membersCount": "{n} members",
++  "community.pending": "Pending",
++  "community.openCommunity": "Open community",
++  "community.joinAction": "Join",
++  "community.viewCommunity": "View community",
++  "community.invite": "Invite people",
++  "community.cat.study": "Study",
++  "community.cat.project": "Project",
++  "community.cat.coding": "Coding",
++  "community.cat.design": "Design",
++  "community.cat.languages": "Languages",
++  "community.cat.other": "Other",
+   "community.whoCanPost": "Who can post",
+   "community.joinCommunity": "Join community",
+   "community.createdName": "Created {name}",
+diff --git a/src/i18n/messages/fr.ts b/src/i18n/messages/fr.ts
+index e055c27..fa7fd80 100644
+--- a/src/i18n/messages/fr.ts
++++ b/src/i18n/messages/fr.ts
+@@ -876,6 +876,17 @@ export const fr: Record<MessageKey, string> = {
+     "Seuls le propriétaire et les admins peuvent publier dans cette communauté.",
+   "community.joinToPost": "Rejoignez cette communauté pour publier.",
+   "community.membersCount": "{n} membres",
++  "community.pending": "En attente",
++  "community.openCommunity": "Ouvrir la communauté",
++  "community.joinAction": "Rejoindre",
++  "community.viewCommunity": "Voir la communauté",
++  "community.invite": "Inviter des personnes",
++  "community.cat.study": "Étude",
++  "community.cat.project": "Projet",
++  "community.cat.coding": "Programmation",
++  "community.cat.design": "Design",
++  "community.cat.languages": "Langues",
++  "community.cat.other": "Autre",
+   "community.whoCanPost": "Qui peut publier",
+   "community.joinCommunity": "Rejoindre la communauté",
+   "community.createdName": "Créé : {name}",
+diff --git a/src/lib/spaces-client.ts b/src/lib/spaces-client.ts
+index b2a4e84..3d25c58 100644
+--- a/src/lib/spaces-client.ts
++++ b/src/lib/spaces-client.ts
+@@ -2,6 +2,7 @@
+ 
+ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+ import { demoActions, useDemoState } from "@/lib/demo-store";
++import { useMe } from "@/lib/social-store";
+ import type { Member, MyStatus, SpaceKind, SpaceSummary, SpaceView } from "@/server/spaces-store";
+ 
+ export type { Member, MyStatus, SpaceKind, SpaceSummary, SpaceView };
+@@ -31,14 +32,18 @@ function readGuestUid(): string {
+ 
+ export function useIdentity(): { uid: string; name: string; signedIn: boolean; ready: boolean } {
+   const { session, settings } = useDemoState();
++  const me = useMe(); // real signed-in profile from the social store (null while loading/guest)
+   const guest = useSyncExternalStore(
+     () => () => {},
+     readGuestUid,
+     () => "",
+   );
+-  const signedIn = !!session;
+-  const uid = session ? `u-${session.email.toLowerCase()}` : guest;
+-  return { uid, name: settings.displayName || session?.name || "Guest", signedIn, ready: !!uid };
++  // The real account wins: same uuid in every tab, same display name as the profile.
++  // Fallbacks keep guests working and cover stale demo settings saved earlier.
++  const uid = me ? `u-${me.id}` : session ? `u-${session.email.toLowerCase()}` : guest;
++  const name =
++    me?.displayName || session?.name || settings.displayName || me?.id?.slice(0, 8) || "Guest";
++  return { uid, name, signedIn: !!me || !!session, ready: !!uid };
+ }
+ 
+ export async function api<T>(url: string, init?: RequestInit): Promise<{ ok: boolean; data: T }> {
+diff --git a/supabase/migrations/20261102000003_space_join.sql b/supabase/migrations/20261102000003_space_join.sql
+new file mode 100644
+index 0000000..4929608
+--- /dev/null
++++ b/supabase/migrations/20261102000003_space_join.sql
+@@ -0,0 +1,74 @@
++-- Round 4: fix "تعذر الانضمام للمجموعة" (Error joining group).
++--
++-- The spaces / space_members tables live in the production database (not created by
++-- this repo's migrations), and the direct INSERT from GroupDetail is rejected there.
++-- This migration adds a SECURITY DEFINER RPC that joins a group safely and returns a
++-- readable result, plus — only when RLS is enabled — a self-insert policy so the
++-- older direct-insert fallback also works. Safe to run twice.
++
++create or replace function public.join_space(p_space uuid)
++returns jsonb
++language plpgsql
++security definer
++set search_path = ''
++as $$
++declare
++  me uuid := auth.uid();
++  s public.spaces;
++begin
++  if me is null then
++    return jsonb_build_object('ok', false, 'error', 'Sign in first.');
++  end if;
++
++  select * into s from public.spaces where id = p_space and kind = 'group';
++  if not found then
++    return jsonb_build_object('ok', false, 'error', 'Group not found.');
++  end if;
++
++  if exists (
++    select 1 from public.space_members where space_id = s.id and user_id = me
++  ) then
++    return jsonb_build_object('ok', true, 'spaceId', s.id, 'outcome', 'already-member');
++  end if;
++
++  if s.visibility = 'private' then
++    insert into public.space_join_requests (space_id, user_id, status)
++    values (s.id, me, 'pending')
++    on conflict do nothing;
++    return jsonb_build_object('ok', true, 'spaceId', s.id, 'outcome', 'requested');
++  end if;
++
++  insert into public.space_members (space_id, user_id, role)
++  values (s.id, me, 'member')
++  on conflict do nothing;
++
++  return jsonb_build_object('ok', true, 'spaceId', s.id, 'outcome', 'joined');
++exception
++  when others then
++    return jsonb_build_object('ok', false, 'error', sqlerrm);
++end;
++$$;
++
++grant execute on function public.join_space(uuid) to authenticated;
++
++-- Only touches the live database when RLS is actually enabled on space_members;
++-- skipped otherwise. Lets a signed-in user insert their own membership row.
++do $$
++begin
++  if exists (
++    select 1 from pg_tables
++    where schemaname = 'public' and tablename = 'space_members' and rowsecurity
++  )
++  and not exists (
++    select 1 from pg_policies
++    where schemaname = 'public'
++      and tablename = 'space_members'
++      and policyname = 'space_members_self_insert'
++  ) then
++    execute
++      'create policy space_members_self_insert on public.space_members
++         for insert to authenticated
++         with check (user_id = auth.uid())';
++  end if;
++end
++$$;
+-- 
+2.47.3
+

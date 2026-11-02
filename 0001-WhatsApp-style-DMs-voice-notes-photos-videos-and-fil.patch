@@ -1,0 +1,1099 @@
+From 4836df80156257c7081b07f279aa84da3bc3608d Mon Sep 17 00:00:00 2001
+From: Z User <z@container>
+Date: Sun, 1 Nov 2026 23:01:15 +0000
+Subject: [PATCH] WhatsApp-style DMs: voice notes, photos, videos and file
+ attachments
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- direct_messages gains an attachments jsonb column; a message can be
+  media-only now (body check allows an empty caption when files are attached)
+- new dm-media storage bucket with read/insert/delete policies
+- ChatComposer: paperclip file picker with preview queue and mic button with
+  MediaRecorder voice notes (2-minute cap, stop + discard, mic error toasts)
+- ChatMessageBubble: renders images, playable voice notes, videos and
+  downloadable files inside the bubble, caption under the media
+- thread list shows Photo / Voice note / Video / File for media-only messages
+  and the You: prefix is translated at last
+- friends list action button label is تواصل as requested
+- next.config.ts: drop turbopack.root (__dirname breaks the TS config loader)
+
+SQL to run in the Supabase SQL editor: supabase/migrations/20261102000005_dm_media.sql
+---
+ next.config.ts                                |   3 -
+ src/components/messages/ChatComposer.tsx      | 280 ++++++++++++++++++
+ src/components/messages/ChatMessageBubble.tsx | 123 ++++++++
+ src/components/messages/MessagesClient.tsx    | 114 +++----
+ src/i18n/messages/ar.ts                       |  18 +-
+ src/i18n/messages/en.ts                       |  16 +
+ src/i18n/messages/fr.ts                       |  16 +
+ src/lib/media-upload.ts                       |  18 +-
+ src/lib/social-store.ts                       | 106 ++++++-
+ src/types/social.ts                           |   2 +
+ .../migrations/20261102000005_dm_media.sql    |  63 ++++
+ 11 files changed, 679 insertions(+), 80 deletions(-)
+ create mode 100644 src/components/messages/ChatComposer.tsx
+ create mode 100644 src/components/messages/ChatMessageBubble.tsx
+ create mode 100644 supabase/migrations/20261102000005_dm_media.sql
+
+diff --git a/next.config.ts b/next.config.ts
+index a9a1bf4..2f6491c 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -2,9 +2,6 @@ import type { NextConfig } from "next";
+ 
+ const nextConfig: NextConfig = {
+   reactStrictMode: true,
+-  turbopack: {
+-    root: __dirname,
+-  },
+ };
+ 
+ export default nextConfig;
+diff --git a/src/components/messages/ChatComposer.tsx b/src/components/messages/ChatComposer.tsx
+new file mode 100644
+index 0000000..751f532
+--- /dev/null
++++ b/src/components/messages/ChatComposer.tsx
+@@ -0,0 +1,280 @@
++"use client";
++
++import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
++import { Mic, Paperclip, Send, Square, Trash2, X } from "lucide-react";
++import { Button } from "@/components/ui/Button";
++import { useToast } from "@/components/ui/Toast";
++import { useT } from "@/i18n/client";
++import { MAX_MEDIA_BYTES, uploadMedia } from "@/lib/media-upload";
++import { cn } from "@/lib/utils";
++import type { PostAttachment } from "@/types/social";
++
++/**
++ * WhatsApp-style composer for direct messages: text, attached files
++ * (photo / video / any file) and recorded voice notes, all queued as
++ * attachments and sent together with the caption text.
++ */
++
++/** Voice notes are capped at two minutes, then recording stops on its own. */
++const MAX_VOICE_SECONDS = 120;
++
++const VOICE_MIMES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
++
++function pickVoiceMime(): string {
++  if (typeof MediaRecorder === "undefined") return "";
++  return VOICE_MIMES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
++}
++
++function voiceExtension(mime: string): string {
++  if (mime.includes("ogg")) return "ogg";
++  if (mime.includes("mp4")) return "m4a";
++  return "webm";
++}
++
++export function ChatComposer({
++  onSend,
++  placeholder,
++  label,
++}: {
++  /** Sends the caption text plus every queued attachment; returns the action result. */
++  onSend: (text: string, attachments: PostAttachment[]) => Promise<{ ok: boolean; error?: string }>;
++  placeholder: string;
++  label: string;
++}) {
++  const t = useT();
++  const toast = useToast();
++
++  const [draft, setDraft] = useState("");
++  const [queue, setQueue] = useState<PostAttachment[]>([]);
++  const [busy, setBusy] = useState(false);
++  const [uploading, setUploading] = useState(false);
++  const [recording, setRecording] = useState(false);
++  const [seconds, setSeconds] = useState(0);
++
++  const fileInputRef = useRef<HTMLInputElement>(null);
++  const recorderRef = useRef<MediaRecorder | null>(null);
++  const streamRef = useRef<MediaStream | null>(null);
++  const chunksRef = useRef<Blob[]>([]);
++  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
++  const cancelledRef = useRef(false);
++
++  const stopTimer = () => {
++    if (timerRef.current) {
++      clearInterval(timerRef.current);
++      timerRef.current = null;
++    }
++  };
++
++  // Leaving the page (or the conversation) always releases the microphone.
++  useEffect(
++    () => () => {
++      stopTimer();
++      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
++      streamRef.current?.getTracks().forEach((track) => track.stop());
++    },
++    [],
++  );
++
++  async function addFiles(files: File[]) {
++    if (files.length === 0) return;
++    for (const file of files) {
++      if (file.size > MAX_MEDIA_BYTES) {
++        toast.push(t("dm.fileTooLarge"));
++        continue;
++      }
++      setUploading(true);
++      try {
++        const result = await uploadMedia("dm", file, "dm-media");
++        if (result.ok) {
++          setQueue((q) => [...q, result.value]);
++        } else {
++          toast.push(result.error);
++        }
++      } finally {
++        setUploading(false);
++      }
++    }
++    if (fileInputRef.current) fileInputRef.current.value = "";
++  }
++
++  // Two minutes is the limit; the timer stops itself through the effect below.
++  useEffect(() => {
++    if (recording && seconds >= MAX_VOICE_SECONDS) stopVoice();
++  }, [recording, seconds]);
++
++  async function startVoice() {
++    const mime = pickVoiceMime();
++    if (!mime) {
++      toast.push(t("dm.micUnavailable"));
++      return;
++    }
++    try {
++      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
++      streamRef.current = stream;
++      chunksRef.current = [];
++      cancelledRef.current = false;
++
++      const recorder = new MediaRecorder(stream, { mimeType: mime });
++      recorder.ondataavailable = (e) => {
++        if (e.data.size > 0) chunksRef.current.push(e.data);
++      };
++      recorder.onstop = () => {
++        stream.getTracks().forEach((track) => track.stop());
++        streamRef.current = null;
++        stopTimer();
++        setRecording(false);
++        setSeconds(0);
++
++        if (cancelledRef.current || chunksRef.current.length === 0) return;
++        const type = recorder.mimeType || mime || "audio/webm";
++        const blob = new Blob(chunksRef.current, { type });
++        const file = new File([blob], `voice-note-${Date.now()}.${voiceExtension(type)}`, { type });
++        void addFiles([file]);
++      };
++
++      recorderRef.current = recorder;
++      recorder.start(250);
++      setRecording(true);
++      setSeconds(0);
++      timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
++    } catch {
++      toast.push(t("dm.micDenied"));
++    }
++  }
++
++  function stopVoice() {
++    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
++  }
++
++  function cancelVoice() {
++    cancelledRef.current = true;
++    stopVoice();
++  }
++
++  async function send(e?: FormEvent) {
++    e?.preventDefault();
++    if (busy || uploading || recording) return;
++
++    const text = draft.trim();
++    if (!text && queue.length === 0) return;
++
++    setBusy(true);
++    const result = await onSend(text, queue);
++    setBusy(false);
++
++    if (!result.ok) {
++      toast.push(result.error ?? "");
++      return;
++    }
++    setDraft("");
++    setQueue([]);
++  }
++
++  function onFilePick(e: ChangeEvent<HTMLInputElement>) {
++    void addFiles(Array.from(e.target.files ?? []));
++  }
++
++  return (
++    <div className="border-t border-cova-line">
++      {queue.length > 0 && (
++        <ul className="flex flex-wrap gap-2 px-3 pt-3">
++          {queue.map((a) => (
++            <li
++              key={a.url}
++              className="flex items-center gap-2 rounded-lg border border-cova-line bg-cova-bg py-1 pe-1 ps-2"
++            >
++              {a.kind === "image" ? (
++                // eslint-disable-next-line @next/next/no-img-element
++                <img src={a.url} alt="" className="h-8 w-8 rounded object-cover" />
++              ) : (
++                <span className="max-w-[10rem] truncate text-xs">{a.name}</span>
++              )}
++              <button
++                type="button"
++                aria-label={t("dm.removeAttachment")}
++                onClick={() => setQueue((q) => q.filter((x) => x.url !== a.url))}
++                className="rounded p-0.5 hover:bg-cova-pale"
++              >
++                <X className="h-3.5 w-3.5" aria-hidden="true" />
++              </button>
++            </li>
++          ))}
++        </ul>
++      )}
++
++      {recording ? (
++        <div className="flex items-center gap-3 p-3">
++          <span className="flex items-center gap-2 rounded-full bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600">
++            <span
++              className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500"
++              aria-hidden="true"
++            />
++            {t("dm.recording", { seconds: String(seconds) })}
++          </span>
++          <div className="flex-1" />
++          <Button
++            type="button"
++            size="sm"
++            variant="ghost"
++            aria-label={t("dm.cancel")}
++            onClick={cancelVoice}
++          >
++            <Trash2 className="h-4 w-4" aria-hidden="true" /> {t("dm.cancel")}
++          </Button>
++          <Button type="button" size="sm" onClick={stopVoice} aria-label={t("dm.stop")}>
++            <Square className="h-4 w-4" aria-hidden="true" /> {t("dm.stop")}
++          </Button>
++        </div>
++      ) : (
++        <form onSubmit={(e) => void send(e)} className="flex items-center gap-2 p-3">
++          <input
++            ref={fileInputRef}
++            type="file"
++            multiple
++            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip"
++            onChange={onFilePick}
++            className="hidden"
++            aria-hidden="true"
++            tabIndex={-1}
++          />
++          <button
++            type="button"
++            aria-label={t("dm.attach")}
++            title={t("dm.attach")}
++            disabled={uploading || busy}
++            onClick={() => fileInputRef.current?.click()}
++            className="rounded-full p-2 text-cova-mute hover:bg-cova-pale hover:text-cova-ink disabled:opacity-50"
++          >
++            <Paperclip className="h-5 w-5" aria-hidden="true" />
++          </button>
++          <button
++            type="button"
++            aria-label={t("dm.mic")}
++            title={t("dm.mic")}
++            disabled={uploading || busy}
++            onClick={() => void startVoice()}
++            className="rounded-full p-2 text-cova-mute hover:bg-cova-pale hover:text-cova-ink disabled:opacity-50"
++          >
++            <Mic className="h-5 w-5" aria-hidden="true" />
++          </button>
++          <input
++            aria-label={label}
++            value={draft}
++            maxLength={2000}
++            onChange={(e) => setDraft(e.target.value)}
++            placeholder={uploading ? t("dm.uploading") : placeholder}
++            className="h-10 min-w-0 flex-1 rounded-full border border-cova-line px-4 text-sm placeholder:text-cova-mute"
++          />
++          <Button
++            type="submit"
++            aria-label={t("messages.send")}
++            disabled={busy || uploading || (!draft.trim() && queue.length === 0)}
++            className={cn("rounded-full px-4")}
++          >
++            <Send className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
++          </Button>
++        </form>
++      )}
++    </div>
++  );
++}
+diff --git a/src/components/messages/ChatMessageBubble.tsx b/src/components/messages/ChatMessageBubble.tsx
+new file mode 100644
+index 0000000..7165227
+--- /dev/null
++++ b/src/components/messages/ChatMessageBubble.tsx
+@@ -0,0 +1,123 @@
++"use client";
++
++import { useState } from "react";
++import { FileText, Play } from "lucide-react";
++import { cn } from "@/lib/utils";
++import type { DirectMessage, PostAttachment } from "@/types/social";
++
++/**
++ * One chat bubble in a direct conversation, WhatsApp-style: attachments first
++ * (photo / voice note / video / file), caption text under them.
++ */
++
++function formatBytes(size: number): string {
++  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
++  if (size >= 1024) return `${Math.round(size / 1024)} KB`;
++  return `${size} B`;
++}
++
++function AttachmentView({
++  attachment,
++  onGone,
++}: {
++  attachment: PostAttachment;
++  onGone: (url: string) => void;
++}) {
++  const { url, kind, name, mime, size } = attachment;
++
++  if (kind === "image") {
++    return (
++      <a href={url} target="_blank" rel="noopener noreferrer" className="block">
++        {/* eslint-disable-next-line @next/next/no-img-element */}
++        <img
++          src={url}
++          alt={name}
++          loading="lazy"
++          onError={() => onGone(url)}
++          className="max-h-72 max-w-full rounded-xl border border-cova-line object-cover"
++        />
++      </a>
++    );
++  }
++
++  if (kind === "video") {
++    return (
++      <video
++        src={url}
++        controls
++        preload="metadata"
++        onError={() => onGone(url)}
++        className="max-h-72 max-w-full rounded-xl border border-cova-line"
++      />
++    );
++  }
++
++  if (kind === "audio") {
++    return (
++      <span className="flex items-center gap-2">
++        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cova-muted">
++          <Play className="h-4 w-4 text-cova-ink" aria-hidden="true" />
++        </span>
++        <audio
++          src={url}
++          controls
++          preload="metadata"
++          onError={() => onGone(url)}
++          className="h-9 max-w-[14rem]"
++        />
++      </span>
++    );
++  }
++
++  return (
++    <a
++      href={url}
++      target="_blank"
++      rel="noopener noreferrer"
++      download={name}
++      className="flex items-center gap-2 rounded-xl border border-cova-line bg-white/70 px-3 py-2 hover:bg-cova-pale"
++    >
++      <FileText className="h-5 w-5 shrink-0 text-cova-mute" aria-hidden="true" />
++      <span className="min-w-0">
++        <span className="block max-w-[12rem] truncate text-sm font-medium">{name}</span>
++        <span className="block text-xs text-cova-mute">
++          {formatBytes(size)} · {mime || "file"}
++        </span>
++      </span>
++    </a>
++  );
++}
++
++export function ChatMessageBubble({
++  message,
++  mine,
++  time,
++}: {
++  message: DirectMessage;
++  mine: boolean;
++  time: string;
++}) {
++  const [gone, setGone] = useState<Record<string, boolean>>({});
++  const visible = message.attachments.filter((a) => !gone[a.url]);
++
++  return (
++    <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
++      <div
++        className={cn(
++          "max-w-[80%] space-y-2 rounded-2xl px-3 py-2 text-sm",
++          mine ? "bg-cova-soft" : "border border-cova-line bg-white",
++        )}
++      >
++        {visible.map((a) => (
++          <AttachmentView
++            key={a.url}
++            attachment={a}
++            onGone={(url) => setGone((s) => ({ ...s, [url]: true }))}
++          />
++        ))}
++        {message.text && <p className="whitespace-pre-line break-words">{message.text}</p>}
++        <p className="text-end text-[11px] text-cova-ink/70">{time}</p>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/messages/MessagesClient.tsx b/src/components/messages/MessagesClient.tsx
+index 54dd284..a4d2e16 100644
+--- a/src/components/messages/MessagesClient.tsx
++++ b/src/components/messages/MessagesClient.tsx
+@@ -1,8 +1,8 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+-import { ArrowLeft, MessageSquare, Plus, Send, UserPlus, X } from "lucide-react";
++import { useEffect, useMemo, useRef, useState } from "react";
++import { ArrowLeft, MessageSquare, Plus, UserPlus, X } from "lucide-react";
+ import { Avatar } from "@/components/ui/Avatar";
+ import { Badge } from "@/components/ui/Badge";
+ import { Button } from "@/components/ui/Button";
+@@ -15,7 +15,6 @@ import { getStudent } from "@/data/students";
+ import { useT } from "@/i18n/client";
+ import { useHydrated } from "@/lib/use-hydrated";
+ import {
+-  LIMITS,
+   formatWhen,
+   friendsOf,
+   listThreads,
+@@ -27,7 +26,9 @@ import {
+   useSocial,
+ } from "@/lib/social-store";
+ import { cn, matchesQuery } from "@/lib/utils";
+-import type { SocialUser } from "@/types/social";
++import type { PostAttachment, SocialUser } from "@/types/social";
++import { ChatComposer } from "@/components/messages/ChatComposer";
++import { ChatMessageBubble } from "@/components/messages/ChatMessageBubble";
+ 
+ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+   const toast = useToast();
+@@ -41,7 +42,6 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+   const [query, setQuery] = useState("");
+   const [composing, setComposing] = useState(false);
+   const [peopleQuery, setPeopleQuery] = useState("");
+-  const [draft, setDraft] = useState("");
+   const endRef = useRef<HTMLDivElement>(null);
+ 
+   const threads = useMemo(() => (meId ? listThreads(social, meId) : []), [social, meId]);
+@@ -102,15 +102,21 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+     setPeopleQuery("");
+   }
+ 
+-  async function send(e: FormEvent) {
+-    e.preventDefault();
+-    if (!selected) return;
+-    const result = await socialActions.sendDirectMessage(meId, selected.id, draft);
+-    if (!result.ok) {
+-      toast.push(result.error);
+-      return;
+-    }
+-    setDraft("");
++  /** Label shown in the thread list when the last message is a photo / voice note / file. */
++  function previewLabel(attachments: PostAttachment[]): string {
++    const first = attachments[0];
++    if (!first) return "";
++    if (first.kind === "image") return t("messages.photo");
++    if (first.kind === "audio") return t("messages.voiceNote");
++    if (first.kind === "video") return t("messages.video");
++    return t("messages.file");
++  }
++
++  async function send(text: string, attachments: PostAttachment[]) {
++    if (!selected) return { ok: false as const, error: t("messages.selectConversation") };
++    const result = await socialActions.sendDirectMessage(meId, selected.id, text, attachments);
++    if (!result.ok) toast.push(result.error);
++    return result;
+   }
+ 
+   const relation = selected ? relationStatus(social, meId, selected.id) : "none";
+@@ -174,7 +180,9 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+           {composing ? (
+             <ul className="flex-1 overflow-y-auto">
+               {!peopleQuery.trim() && peopleResults.length > 0 && (
+-                <li className="px-4 pt-3 text-xs font-medium text-cova-mute">{t("messages.yourFriends")}</li>
++                <li className="px-4 pt-3 text-xs font-medium text-cova-mute">
++                  {t("messages.yourFriends")}
++                </li>
+               )}
+               {peopleResults.length === 0 && (
+                 <li className="p-4 text-sm text-cova-mute">
+@@ -193,7 +201,9 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+                     <Avatar name={u.displayName} tone={u.tone} size="md" />
+                     <span className="min-w-0 flex-1">
+                       <span className="block truncate text-sm font-semibold">{u.displayName}</span>
+-                      <span className="block truncate font-mono text-xs text-cova-mute">{u.id}</span>
++                      <span className="block truncate font-mono text-xs text-cova-mute">
++                        {u.id}
++                      </span>
+                     </span>
+                   </button>
+                 </li>
+@@ -208,36 +218,36 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+                     : t("messages.noConversationsMatch")}
+                 </li>
+               )}
+-              {visibleThreads.map((t) => {
+-                const name = t.other?.displayName ?? "Unknown person";
+-                const active = t.otherId === selected?.id;
++              {visibleThreads.map((thread) => {
++                const name = thread.other?.displayName ?? "Unknown person";
++                const active = thread.otherId === selected?.id;
+                 return (
+-                  <li key={t.otherId}>
++                  <li key={thread.otherId}>
+                     <button
+                       type="button"
+-                      onClick={() => open(t.otherId)}
++                      onClick={() => open(thread.otherId)}
+                       aria-current={active ? "true" : undefined}
+                       className={cn(
+                         "flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-cova-bg",
+                         active && "bg-cova-pale",
+                       )}
+                     >
+-                      <Avatar name={name} tone={t.other?.tone} size="md" />
++                      <Avatar name={name} tone={thread.other?.tone} size="md" />
+                       <span className="min-w-0 flex-1">
+                         <span className="flex items-center justify-between gap-2">
+                           <span className="truncate text-sm font-semibold">{name}</span>
+                           <span className="shrink-0 text-xs text-cova-mute">
+-                            {formatWhen(t.last.at)}
++                            {formatWhen(thread.last.at)}
+                           </span>
+                         </span>
+                         <span className="block truncate text-xs text-cova-mute">
+-                          {t.last.fromId === meId && "You: "}
+-                          {t.last.text}
++                          {thread.last.fromId === meId && `${t("messages.youPrefix")} `}
++                          {thread.last.text || previewLabel(thread.last.attachments)}
+                         </span>
+                       </span>
+-                      {t.unread > 0 && !active && (
++                      {thread.unread > 0 && !active && (
+                         <span className="rounded-full bg-cova-soft px-2 py-0.5 text-xs font-medium">
+-                          {t.unread}
++                          {thread.unread}
+                         </span>
+                       )}
+                     </button>
+@@ -283,7 +293,9 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+                     variant="secondary"
+                     onClick={async () => {
+                       const result = await socialActions.sendFriendRequest(meId, selected.id);
+-                      toast.push(result.ok ? `${t("messages.requestSent")} ${firstName}` : result.error);
++                      toast.push(
++                        result.ok ? `${t("messages.requestSent")} ${firstName}` : result.error,
++                      );
+                     }}
+                   >
+                     <UserPlus className="h-4 w-4" aria-hidden="true" /> {t("messages.addFriend")}
+@@ -294,8 +306,14 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+                   <Button
+                     size="sm"
+                     onClick={async () => {
+-                      const result = await socialActions.respondFriendRequest(meId, selected.id, true);
+-                      toast.push(result.ok ? `${t("messages.youAreNowFriends")} ${firstName}` : result.error);
++                      const result = await socialActions.respondFriendRequest(
++                        meId,
++                        selected.id,
++                        true,
++                      );
++                      toast.push(
++                        result.ok ? `${t("messages.youAreNowFriends")} ${firstName}` : result.error,
++                      );
+                     }}
+                   >
+                     {t("messages.acceptRequest")}
+@@ -310,36 +328,20 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
+                   </p>
+                 )}
+                 {messages.map((m) => (
+-                  <div
++                  <ChatMessageBubble
+                     key={m.id}
+-                    className={cn("flex", m.fromId === meId ? "justify-end" : "justify-start")}
+-                  >
+-                    <div
+-                      className={cn(
+-                        "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
+-                        m.fromId === meId ? "bg-cova-soft" : "border border-cova-line bg-white",
+-                      )}
+-                    >
+-                      <p className="whitespace-pre-line break-words">{m.text}</p>
+-                      <p className="mt-1 text-[11px] text-cova-ink/70">{formatWhen(m.at)}</p>
+-                    </div>
+-                  </div>
++                    message={m}
++                    mine={m.fromId === meId}
++                    time={formatWhen(m.at)}
++                  />
+                 ))}
+                 <div ref={endRef} />
+               </div>
+-              <form onSubmit={send} className="flex gap-2 border-t border-cova-line p-3">
+-                <input
+-                  aria-label={t("messages.message")}
+-                  value={draft}
+-                  maxLength={LIMITS.text.max}
+-                  onChange={(e) => setDraft(e.target.value)}
+-                  placeholder={`${t("messages.message")} ${firstName}`}
+-                  className="h-10 flex-1 rounded-lg border border-cova-line px-3 text-sm placeholder:text-cova-mute"
+-                />
+-                <Button type="submit" disabled={!draft.trim()}>
+-                  <Send className="h-4 w-4" aria-hidden="true" /> {t("messages.send")}
+-                </Button>
+-              </form>
++              <ChatComposer
++                onSend={send}
++                placeholder={`${t("messages.message")} ${firstName}`}
++                label={t("messages.message")}
++              />
+             </>
+           ) : (
+             <div className="flex flex-1 items-center justify-center p-6">
+diff --git a/src/i18n/messages/ar.ts b/src/i18n/messages/ar.ts
+index 6183311..581af02 100644
+--- a/src/i18n/messages/ar.ts
++++ b/src/i18n/messages/ar.ts
+@@ -366,7 +366,7 @@ export const ar: Record<MessageKey, string> = {
+   "friends.searchHint": "اكتب حرفين على الأقل (الاسم أو معرّف COVA).",
+   "friends.searchLabel": "البحث عن أشخاص",
+   "friends.searchPlaceholder": "الاسم أو معرّف COVA",
+-  "friends.message": "رسالة",
++  "friends.message": "تواصل",
+   "friends.unfriend": "إزالة الصداقة",
+   "friends.accept": "قبول",
+   "friends.decline": "رفض",
+@@ -680,6 +680,22 @@ export const ar: Record<MessageKey, string> = {
+   "messages.selectConversation": "اختر محادثة",
+   "messages.chooseConversation":
+     "اختر محادثة من القائمة، أو ابدأ دردشة جديدة مع شخص ما بالاسم أو المعرف.",
++  "messages.photo": "صورة",
++  "messages.voiceNote": "رسالة صوتية",
++  "messages.video": "فيديو",
++  "messages.file": "ملف",
++  "messages.youPrefix": "أنت:",
++
++  "dm.attach": "إرفاق ملف",
++  "dm.mic": "تسجيل رسالة صوتية",
++  "dm.stop": "إيقاف",
++  "dm.cancel": "إلغاء",
++  "dm.recording": "جارٍ التسجيل… {seconds} ث",
++  "dm.uploading": "جارٍ الرفع…",
++  "dm.fileTooLarge": "الملف كبير جدًا (الحد الأقصى 25 ميغابايت).",
++  "dm.micDenied": "تم رفض الوصول إلى الميكروفون. اسمح به من المتصفح ثم أعد المحاولة.",
++  "dm.micUnavailable": "تسجيل الصوت غير مدعوم في هذا المتصفح.",
++  "dm.removeAttachment": "إزالة المرفق",
+ 
+   "resources.title": "المراجع",
+   "resources.description": "اكتشف الموارد المفيدة وشاركها مع المجتمع.",
+diff --git a/src/i18n/messages/en.ts b/src/i18n/messages/en.ts
+index d83ba2c..d117902 100644
+--- a/src/i18n/messages/en.ts
++++ b/src/i18n/messages/en.ts
+@@ -706,6 +706,22 @@ export const en = {
+   "messages.selectConversation": "Select a conversation",
+   "messages.chooseConversation":
+     "Choose a conversation from the list, or start a new chat with someone by name or ID.",
++  "messages.photo": "Photo",
++  "messages.voiceNote": "Voice note",
++  "messages.video": "Video",
++  "messages.file": "File",
++  "messages.youPrefix": "You:",
++
++  "dm.attach": "Attach a file",
++  "dm.mic": "Record a voice note",
++  "dm.stop": "Stop",
++  "dm.cancel": "Discard",
++  "dm.recording": "Recording… {seconds}s",
++  "dm.uploading": "Uploading…",
++  "dm.fileTooLarge": "File is too large (max 25 MB).",
++  "dm.micDenied": "Microphone access was denied. Allow it in the browser and try again.",
++  "dm.micUnavailable": "Voice recording is not supported in this browser.",
++  "dm.removeAttachment": "Remove attachment",
+ 
+   "resources.title": "Resources",
+   "resources.description": "Discover and share useful resources with the community.",
+diff --git a/src/i18n/messages/fr.ts b/src/i18n/messages/fr.ts
+index fa7fd80..9c6d81f 100644
+--- a/src/i18n/messages/fr.ts
++++ b/src/i18n/messages/fr.ts
+@@ -715,6 +715,22 @@ export const fr: Record<MessageKey, string> = {
+   "messages.selectConversation": "Sélectionnez une conversation",
+   "messages.chooseConversation":
+     "Choisissez une conversation dans la liste, ou démarrez une nouvelle discussion avec quelqu'un par nom ou ID.",
++  "messages.photo": "Photo",
++  "messages.voiceNote": "Note vocale",
++  "messages.video": "Vidéo",
++  "messages.file": "Fichier",
++  "messages.youPrefix": "Vous :",
++
++  "dm.attach": "Joindre un fichier",
++  "dm.mic": "Enregistrer une note vocale",
++  "dm.stop": "Arrêter",
++  "dm.cancel": "Annuler",
++  "dm.recording": "Enregistrement… {seconds}s",
++  "dm.uploading": "Envoi en cours…",
++  "dm.fileTooLarge": "Fichier trop volumineux (25 Mo max).",
++  "dm.micDenied": "Accès au micro refusé. Autorisez-le dans le navigateur puis réessayez.",
++  "dm.micUnavailable": "L'enregistrement vocal n'est pas pris en charge par ce navigateur.",
++  "dm.removeAttachment": "Retirer la pièce jointe",
+ 
+   "resources.title": "Ressources",
+   "resources.description": "Découvrez et partagez des ressources utiles avec la communauté.",
+diff --git a/src/lib/media-upload.ts b/src/lib/media-upload.ts
+index 72b1aa2..99fadb2 100644
+--- a/src/lib/media-upload.ts
++++ b/src/lib/media-upload.ts
+@@ -2,12 +2,13 @@ import { getSupabase } from "@/lib/supabase/client";
+ import type { PostAttachment } from "@/types/social";
+ 
+ /**
+- * Uploads a media file to the shared "space-media" storage bucket and returns the
+- * attachment descriptor stored with posts and group messages.
++ * Uploads a media file to a storage bucket and returns the attachment descriptor stored with
++ * posts, group messages and DMs.
+  *
+- * The bucket is created by supabase/migrations/20261102000001_locale_and_media.sql
+- * (or docs/COMMUNITY_GROUPS_UPDATE.md). If it is missing, the error message tells the
+- * person to run that SQL first.
++ * Buckets (created by supabase/migrations):
++ *  - "space-media" (default): community posts and group messages — 20261102000001_locale_and_media.sql
++ *  - "dm-media": direct-message photos, voice notes and files — 20261102000005_dm_media.sql
++ * If a bucket is missing, the error message tells the person to run that SQL first.
+  */
+ 
+ /** 25 MB — generous for images, voice notes and short clips. */
+@@ -42,6 +43,7 @@ function safeName(name: string): string {
+ export async function uploadMedia(
+   spaceId: string,
+   file: File,
++  bucket: "space-media" | "dm-media" = "space-media",
+ ): Promise<{ ok: true; value: PostAttachment } | { ok: false; error: string }> {
+   if (file.size > MAX_MEDIA_BYTES) {
+     return { ok: false, error: "File is too large (max 25 MB)." };
+@@ -52,17 +54,17 @@ export async function uploadMedia(
+   const path = `${spaceId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName(file.name)}`;
+ 
+   const { error } = await supabase.storage
+-    .from("space-media")
++    .from(bucket)
+     .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
+ 
+   if (error) {
+     const message = /bucket/i.test(error.message)
+-      ? "Media storage is not active yet. Ask the project owner to run the SQL setup (see docs/COMMUNITY_GROUPS_UPDATE.md)."
++      ? `Media storage is not active yet. Ask the project owner to run the SQL setup for the "${bucket}" bucket.`
+       : error.message;
+     return { ok: false, error: message };
+   }
+ 
+-  const { data } = supabase.storage.from("space-media").getPublicUrl(path);
++  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+ 
+   return {
+     ok: true,
+diff --git a/src/lib/social-store.ts b/src/lib/social-store.ts
+index 07b3b0e..989e8a0 100644
+--- a/src/lib/social-store.ts
++++ b/src/lib/social-store.ts
+@@ -165,9 +165,16 @@ interface MessageRow {
+ 
+   body: string;
+ 
++  attachments: PostAttachment[] | null;
++
+   created_at: string;
+ }
+ 
++/** The attachments column is new; old rows and late migrations return null. */
++function attachmentList(value: PostAttachment[] | null): PostAttachment[] {
++  return Array.isArray(value) ? value : [];
++}
++
+ interface ReadRow {
+   other_id: string;
+ 
+@@ -440,6 +447,9 @@ let spacesLocaleSupported = true;
+ 
+ let spaceAttachmentsSupported = true;
+ 
++/** Whether the live `direct_messages` table already has the attachments column (dm_media SQL). */
++let dmAttachmentsSupported = true;
++
+ function lockedPlaceholder(id: string): Community {
+   // Reveals nothing: the detail screen shows its "private, enter a code" gate for these.
+ 
+@@ -509,8 +519,37 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>>
+   },
+ 
+   async messages(sb, me) {
+-    const [msgs, readRows] = await Promise.all([
+-      rows<MessageRow>(
++    // The attachments column may not exist yet (dm_media SQL not applied); fall back gracefully.
++    let msgs: MessageRow[];
++    if (dmAttachmentsSupported) {
++      try {
++        msgs = await rows<MessageRow>(
++          sb
++
++            .from("direct_messages")
++
++            .select("id,from_id,to_id,body,attachments,created_at")
++
++            .order("created_at", { ascending: false })
++
++            .limit(MESSAGE_LIMIT),
++        );
++      } catch {
++        dmAttachmentsSupported = false;
++        msgs = await rows<MessageRow>(
++          sb
++
++            .from("direct_messages")
++
++            .select("id,from_id,to_id,body,created_at")
++
++            .order("created_at", { ascending: false })
++
++            .limit(MESSAGE_LIMIT),
++        );
++      }
++    } else {
++      msgs = await rows<MessageRow>(
+         sb
+ 
+           .from("direct_messages")
+@@ -520,10 +559,10 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>>
+           .order("created_at", { ascending: false })
+ 
+           .limit(MESSAGE_LIMIT),
+-      ),
++      );
++    }
+ 
+-      rows<ReadRow>(sb.from("message_reads").select("other_id,read_at")),
+-    ]);
++    const readRows = await rows<ReadRow>(sb.from("message_reads").select("other_id,read_at"));
+ 
+     msgs.reverse();
+ 
+@@ -548,6 +587,7 @@ const loaders: Record<Slice, (sb: SupabaseClient, me: string) => Promise<void>>
+         threadId: pairKey(from, to),
+         fromId: from,
+         text: m.body,
++        attachments: attachmentList(m.attachments),
+         at: Date.parse(m.created_at),
+       });
+     }
+@@ -1582,10 +1622,15 @@ export const socialActions = {
+ 
+   /* ---- direct messages ---- */
+ 
+-  async sendDirectMessage(me: string, otherId: string, text: string): Promise<ActionResult> {
++  async sendDirectMessage(
++    me: string,
++    otherId: string,
++    text: string,
++    attachments: PostAttachment[] = [],
++  ): Promise<ActionResult> {
+     const body = text.trim();
+ 
+-    if (!body) return fail("Write a message first.");
++    if (!body && attachments.length === 0) return fail("Write a message first.");
+ 
+     if (body.length > LIMITS.text.max)
+       return fail(`Messages can be at most ${LIMITS.text.max} characters.`);
+@@ -1604,7 +1649,10 @@ export const socialActions = {
+       const messageId = `demo-${at}`;
+ 
+       commit({
+-        messages: [...state.messages, { id: messageId, threadId, fromId: meKey, text: body, at }],
++        messages: [
++          ...state.messages,
++          { id: messageId, threadId, fromId: meKey, text: body, attachments: [...attachments], at },
++        ],
+ 
+         reads: { ...state.reads, [`${meKey}:${threadId}`]: at },
+       });
+@@ -1618,16 +1666,40 @@ export const socialActions = {
+ 
+     if (other === s.value.me) return fail("You can't message yourself.");
+ 
+-    const { data, error } = await s.value.sb
++    // Attachments are new; when the dm_media SQL hasn't run yet, degrade instead of failing.
++    let insertResult = await s.value.sb
+ 
+       .from("direct_messages")
+ 
+-      .insert({ to_id: other, body })
++      .insert({ to_id: other, body, attachments })
+ 
+-      .select("id,from_id,to_id,body,created_at")
++      .select("id,from_id,to_id,body,attachments,created_at")
+ 
+       .single();
+ 
++    if (
++      insertResult.error &&
++      attachments.length > 0 &&
++      /attach|column|PGRST204/i.test(insertResult.error.message ?? "")
++    ) {
++      dmAttachmentsSupported = false;
++
++      if (!body)
++        return fail("Media messages need the database update (run 20261102000005_dm_media.sql).");
++
++      insertResult = await s.value.sb
++
++        .from("direct_messages")
++
++        .insert({ to_id: other, body })
++
++        .select("id,from_id,to_id,body,created_at")
++
++        .single();
++    }
++
++    const { data, error } = insertResult;
++
+     if (error || !data) return fail(error ? describe(error) : GENERIC_ERROR);
+ 
+     // Show it right away; Realtime then confirms the same row (same id, so nothing doubles).
+@@ -1642,7 +1714,17 @@ export const socialActions = {
+ 
+     if (!state.messages.some((m) => m.id === row.id)) {
+       commit({
+-        messages: [...state.messages, { id: row.id, threadId, fromId: meKey, text: row.body, at }],
++        messages: [
++          ...state.messages,
++          {
++            id: row.id,
++            threadId,
++            fromId: meKey,
++            text: row.body,
++            attachments: attachmentList(row.attachments),
++            at,
++          },
++        ],
+ 
+         reads: { ...state.reads, [`${meKey}:${threadId}`]: at },
+       });
+diff --git a/src/types/social.ts b/src/types/social.ts
+index 631830c..6e53d00 100644
+--- a/src/types/social.ts
++++ b/src/types/social.ts
+@@ -39,6 +39,8 @@ export interface DirectMessage {
+   fromId: string;
+   text: string;
+   at: number;
++  /** Photos, voice notes, videos or files attached to the message (empty for plain text). */
++  attachments: PostAttachment[];
+ }
+ 
+ export type CommunityVisibility = "public" | "private";
+diff --git a/supabase/migrations/20261102000005_dm_media.sql b/supabase/migrations/20261102000005_dm_media.sql
+new file mode 100644
+index 0000000..000493c
+--- /dev/null
++++ b/supabase/migrations/20261102000005_dm_media.sql
+@@ -0,0 +1,63 @@
++-- COVA: WhatsApp-style direct messages — attachments (images, videos, voice notes, files).
++--
++-- Extends the existing direct_messages table with an `attachments` column and relaxes the
++-- body rule so a message can be media-only (a voice note or a photo with no caption).
++--
++-- Idempotent and safe to run several times. Run it in the Supabase SQL editor:
++--   Dashboard -> SQL Editor -> paste -> Run
++
++------------------------------------------------------------------------ attachments column
++
++-- [ { "kind": "image|video|audio|file", "url": "...", "name": "...", "mime": "...", "size": 12345 } ]
++alter table public.direct_messages
++  add column if not exists attachments jsonb not null default '[]'::jsonb;
++
++-- The original inline check required 1-2000 non-blank characters. Media-only messages have an
++-- empty body, so the rule becomes: either a caption (1-2000 chars) or at least one attachment.
++alter table public.direct_messages
++  drop constraint if exists direct_messages_body_check;
++
++alter table public.direct_messages
++  alter column body set default '';
++
++alter table public.direct_messages
++  drop constraint if exists direct_messages_body_len;
++
++alter table public.direct_messages
++  add constraint direct_messages_body_len
++  check (
++    jsonb_typeof(attachments) = 'array'
++    and (
++      attachments <> '[]'::jsonb
++      or char_length(btrim(body)) between 1 and 2000
++    )
++  );
++
++-- Clients may now write attachments together with the existing columns.
++grant insert (to_id, body, attachments) on public.direct_messages to authenticated;
++
++------------------------------------------------------------------------ dm media bucket
++
++-- Voice notes, photos and files sent in a DM. Public read like space-media: the message rows
++-- themselves stay protected by RLS, and storage paths are unguessable (timestamp + random).
++insert into storage.buckets (id, name, public)
++values ('dm-media', 'dm-media', true)
++on conflict (id) do nothing;
++
++drop policy if exists "dm media read" on storage.objects;
++create policy "dm media read"
++on storage.objects for select
++to authenticated, anon
++using (bucket_id = 'dm-media');
++
++drop policy if exists "dm media insert" on storage.objects;
++create policy "dm media insert"
++on storage.objects for insert
++to authenticated
++with check (bucket_id = 'dm-media');
++
++drop policy if exists "dm media delete" on storage.objects;
++create policy "dm media delete"
++on storage.objects for delete
++to authenticated
++using (bucket_id = 'dm-media' and owner = auth.uid());
+-- 
+2.47.3
+

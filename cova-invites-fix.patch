@@ -1,0 +1,255 @@
+From aeb8d39264733e1805cb376b2ae8c8e904b0ad2f Mon Sep 17 00:00:00 2001
+From: Z Dev <dev@z.ai>
+Date: Sun, 1 Nov 2026 17:16:51 +0000
+Subject: [PATCH 2/2] Invites everywhere: share panels for communities and
+ voice rooms, auto-join from invite links
+
+---
+ docs/COMMUNITY_GROUPS_UPDATE.md              | 15 +++++++
+ src/app/(app)/community/[id]/page.tsx        |  8 ++--
+ src/app/(app)/groups/[id]/page.tsx           | 12 ++++--
+ src/components/community/CommunityDetail.tsx | 42 ++++++++++++++++++-
+ src/components/groups/GroupDetail.tsx        | 44 +++++++++++++++++++-
+ src/components/voicing/VoiceRoom.tsx         |  6 ++-
+ 6 files changed, 115 insertions(+), 12 deletions(-)
+
+diff --git a/docs/COMMUNITY_GROUPS_UPDATE.md b/docs/COMMUNITY_GROUPS_UPDATE.md
+index 0414d05..2e527e5 100644
+--- a/docs/COMMUNITY_GROUPS_UPDATE.md
++++ b/docs/COMMUNITY_GROUPS_UPDATE.md
+@@ -48,3 +48,18 @@ language filter simply stays off (all communities visible).
+ | Voice rooms | `SpacePanel.tsx` (QR button) |
+ | Translations | `src/i18n/messages/{en,fr,ar}.ts`, `src/i18n/spaces.ts` |
+ | Database | `supabase/migrations/20261102000001_locale_and_media.sql` |
++
++## Round 2: invite links that actually join (no database change)
++
++The share panel now exists in all three places — community page, group page and
++inside a voice room — and invite links do the joining automatically:
++
++| Place | What staff see | What the invited person gets |
++| --- | --- | --- |
++| Community | Code + link + QR (owner can regenerate) | `/community/{id}?join=CODE` auto-joins or sends the request |
++| Group | Code + link + QR | `/groups/{id}?join=CODE` auto-joins, works even for private groups |
++| Voice room | Code + link + QR | `/voicing/{code}` link, or the code in "Join by code" |
++
++Changed files: `GroupDetail.tsx` (+auto-join), `CommunityDetail.tsx` (+SharePanel, +auto-join),
++`VoiceRoom.tsx` (+SharePanel), and the two page files that forward `?join=`.
++No new migration is needed — it reuses the existing `join_codes` tables and RPCs.
+diff --git a/src/app/(app)/community/[id]/page.tsx b/src/app/(app)/community/[id]/page.tsx
+index 582b3cb..77e4edb 100644
+--- a/src/app/(app)/community/[id]/page.tsx
++++ b/src/app/(app)/community/[id]/page.tsx
+@@ -1,4 +1,3 @@
+-
+ import type { Metadata } from "next";
+ import { CommunityDetail } from "@/components/community/CommunityDetail";
+ 
+@@ -8,10 +7,11 @@ export const metadata: Metadata = {
+ 
+ interface PageProps {
+   params: Promise<{ id: string }>;
++  searchParams: Promise<{ join?: string }>;
+ }
+ 
+-export default async function CommunityPage({ params }: PageProps) {
+-  const { id } = await params;
++export default async function CommunityPage({ params, searchParams }: PageProps) {
++  const [{ id }, { join }] = await Promise.all([params, searchParams]);
+ 
+-  return <CommunityDetail communityId={id} />;
++  return <CommunityDetail communityId={id} joinParam={join ?? ""} />;
+ }
+diff --git a/src/app/(app)/groups/[id]/page.tsx b/src/app/(app)/groups/[id]/page.tsx
+index 9bf2b6d..3dc542c 100644
+--- a/src/app/(app)/groups/[id]/page.tsx
++++ b/src/app/(app)/groups/[id]/page.tsx
+@@ -3,7 +3,13 @@ import { GroupDetail } from "@/components/groups/GroupDetail";
+ 
+ export const metadata: Metadata = { title: "Group" };
+ 
+-export default async function GroupPage({ params }: { params: Promise<{ id: string }> }) {
+-  const { id } = await params;
+-  return <GroupDetail code={id} />;
++export default async function GroupPage({
++  params,
++  searchParams,
++}: {
++  params: Promise<{ id: string }>;
++  searchParams: Promise<{ join?: string }>;
++}) {
++  const [{ id }, { join }] = await Promise.all([params, searchParams]);
++  return <GroupDetail code={id} joinParam={join ?? ""} />;
+ }
+diff --git a/src/components/community/CommunityDetail.tsx b/src/components/community/CommunityDetail.tsx
+index a47dec9..ea28e8c 100644
+--- a/src/components/community/CommunityDetail.tsx
++++ b/src/components/community/CommunityDetail.tsx
+@@ -2,10 +2,11 @@
+ 
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+-import { useEffect, useMemo, useState, type FormEvent } from "react";
++import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+ import { ArrowLeft, Globe, Lock, SearchX, Trash2, Users } from "lucide-react";
+ import { MediaComposer } from "@/components/common/MediaComposer";
+ import { PostAttachments } from "@/components/common/PostAttachments";
++import { SharePanel } from "@/components/common/SharePanel";
+ import {
+   MembersTab,
+   RequestsTab,
+@@ -138,7 +139,13 @@ function postingNotice(community: Community, role: CommunityRole | null, t: TFun
+     : t("community.postStaffOnly");
+ }
+ 
+-export function CommunityDetail({ communityId }: { communityId: string }) {
++export function CommunityDetail({
++  communityId,
++  joinParam = "",
++}: {
++  communityId: string;
++  joinParam?: string;
++}) {
+   const router = useRouter();
+   const toast = useToast();
+   const t = useT();
+@@ -161,6 +168,25 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
+     };
+   }, [communityId]);
+ 
++  // Opened through an invite link (?join=CODE): join by that code once.
++  const joinAttemptRef = useRef("");
++  const wantedCode = joinParam.trim().toUpperCase();
++  useEffect(() => {
++    if (!hydrated || !me || !wantedCode || joinAttemptRef.current === wantedCode) return;
++    joinAttemptRef.current = wantedCode;
++    void socialActions.joinByCode(me.id, wantedCode).then((result) => {
++      if (!result.ok) return; // the regular page (or the private gate) stays on screen
++      const { outcome } = result.value;
++      toast.push(
++        outcome === "requested"
++          ? t("community.privateRequested")
++          : outcome === "joined"
++            ? t("community.joinedCommunity")
++            : t("community.alreadyMember"),
++      );
++    });
++  }, [wantedCode, hydrated, me, toast, t]);
++
+   const posts = useMemo(
+     () => social.posts.filter((p) => p.communityId === communityId).sort((a, b) => b.at - a.at),
+     [social.posts, communityId],
+@@ -292,6 +318,18 @@ export function CommunityDetail({ communityId }: { communityId: string }) {
+         </CardBody>
+       </Card>
+ 
++      {staff && (
++        <div className="mt-4">
++          <SharePanel
++            title={community.name}
++            spaceId={community.id}
++            code={community.joinCode}
++            path={`/community/${community.id}`}
++            canRegenerate={role === "owner"}
++          />
++        </div>
++      )}
++
+       <div className="mt-6">
+         <Tabs
+           tabs={tabs}
+diff --git a/src/components/groups/GroupDetail.tsx b/src/components/groups/GroupDetail.tsx
+index 3c9b4ad..8b2b0ee 100644
+--- a/src/components/groups/GroupDetail.tsx
++++ b/src/components/groups/GroupDetail.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useCallback, useEffect, useState } from "react";
++import { useCallback, useEffect, useRef, useState } from "react";
+ import { useRouter } from "next/navigation";
+ import { DoorClosed, Send, Users } from "lucide-react";
+ import { MediaComposer } from "@/components/common/MediaComposer";
+@@ -35,7 +35,7 @@ type GroupMessage = {
+ 
+ type MemberRole = "owner" | "admin" | "member";
+ 
+-export function GroupDetail({ code }: { code: string }) {
++export function GroupDetail({ code, joinParam = "" }: { code: string; joinParam?: string }) {
+   const router = useRouter();
+   const t = useT();
+ 
+@@ -175,6 +175,46 @@ export function GroupDetail({ code }: { code: string }) {
+     return () => cancelAnimationFrame(frame);
+   }, [loadGroup]);
+ 
++  // Opened through an invite link (?join=CODE): join by that code once,
++  // even when RLS hides a private group until the membership exists.
++  const joinAttemptRef = useRef("");
++  useEffect(() => {
++    const wanted = joinParam.trim().toUpperCase();
++    if (loading || !wanted || joinAttemptRef.current === wanted) return;
++    joinAttemptRef.current = wanted;
++
++    void (async () => {
++      try {
++        const supabase = getSupabase();
++        const { data: authData } = await supabase.auth.getUser();
++        if (!authData.user) return; // the sign-in hint is already on screen
++
++        const { data, error: rpcError } = await supabase.rpc("join_by_code", {
++          p_code: wanted,
++        });
++        if (rpcError) throw rpcError;
++
++        const result = data as { communityId?: string; outcome?: string } | null;
++        if (result?.communityId && group && result.communityId !== group.id) {
++          router.replace(`/groups/${result.communityId}`);
++          return;
++        }
++
++        setNotice(
++          result?.outcome === "requested"
++            ? t("group.joinRequested")
++            : result?.outcome === "already-member"
++              ? t("group.alreadyMember")
++              : t("group.joined"),
++        );
++        await loadGroup();
++      } catch (err) {
++        // Wrong or expired code: keep the regular page instead of an error screen.
++        console.error("Invite auto-join failed:", err);
++      }
++    })();
++  }, [joinParam, loading, group, loadGroup, router, t]);
++
+   // Actualiser les publications en temps réel
+   useEffect(() => {
+     if (!group || !role) return;
+diff --git a/src/components/voicing/VoiceRoom.tsx b/src/components/voicing/VoiceRoom.tsx
+index 09a9d2c..ed01623 100644
+--- a/src/components/voicing/VoiceRoom.tsx
++++ b/src/components/voicing/VoiceRoom.tsx
+@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
+ import { Mic, MicOff, PhoneOff } from "lucide-react";
+ import { Button } from "@/components/ui/Button";
+ import { EmptyState } from "@/components/ui/EmptyState";
++import { SharePanel } from "@/components/common/SharePanel";
+ import { JoinGate } from "@/components/spaces/JoinGate";
+ import { SpacePanel } from "@/components/spaces/SpacePanel";
+ import { AvatarStage } from "@/components/voicing/AvatarStage";
+@@ -135,7 +136,10 @@ export function VoiceRoom({ code }: { code: string }) {
+         )}
+         {me && <span className="sr-only">{me.name}</span>}
+       </div>
+-      <SpacePanel view={view} meUid={uid} send={send} />
++      <div className="space-y-3">
++        <SpacePanel view={view} meUid={uid} send={send} />
++        <SharePanel title={view.name} code={code} path={`/voicing/${code}`} />
++      </div>
+     </div>
+   );
+ }
+-- 
+2.47.3
+

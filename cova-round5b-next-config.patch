@@ -1,0 +1,32 @@
+From a82c15e9abe53814b53f2217569078db69e98be5 Mon Sep 17 00:00:00 2001
+From: Z <z@local>
+Date: Sun, 1 Nov 2026 22:35:54 +0000
+Subject: [PATCH 2/2] Drop turbopack.root pin from next.config
+
+Next.js auto-detects the workspace root for a single-package repo; the
+explicit __dirname pin shadowed the real root in monorepo-style checkouts.
+---
+ next.config.ts | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/next.config.ts b/next.config.ts
+index a9a1bf4..9f8ed67 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -1,10 +1,10 @@
+ import type { NextConfig } from "next";
+ 
++// `turbopack: { root: __dirname }` was removed: Next.js auto-detects the
++// workspace root for a single-package repo, and the explicit pin shadowed the
++// real root in some environments (e.g. monorepo-style checkouts).
+ const nextConfig: NextConfig = {
+   reactStrictMode: true,
+-  turbopack: {
+-    root: __dirname,
+-  },
+ };
+ 
+ export default nextConfig;
+-- 
+2.47.3
+
