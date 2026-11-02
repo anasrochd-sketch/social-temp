@@ -26,14 +26,17 @@ alter table public.call_signals enable row level security;
 grant select, delete on public.call_signals to authenticated;
 grant insert (to_id, kind, payload) on public.call_signals to authenticated;
 
+drop policy if exists call_signals_select on public.call_signals;
 create policy call_signals_select on public.call_signals
   for select to authenticated
   using (from_id = auth.uid() or to_id = auth.uid());
 
+drop policy if exists call_signals_insert on public.call_signals;
 create policy call_signals_insert on public.call_signals
   for insert to authenticated
   with check (from_id = auth.uid() and to_id <> auth.uid());
 
+drop policy if exists call_signals_delete on public.call_signals;
 create policy call_signals_delete on public.call_signals
   for delete to authenticated
   using (from_id = auth.uid() or to_id = auth.uid());
