@@ -83,9 +83,19 @@ export function useSpace(code: string, uid: string) {
     return () => void muteSubs.current.delete(fn);
   }, []);
 
+  // Fresh room: drop any state left over from the previous one (React's
+  // "adjust state when a prop changes" pattern, done during render).
+  const [prevCode, setPrevCode] = useState(code);
+  if (code !== prevCode) {
+    setPrevCode(code);
+    setView(null);
+    setNotFound(false);
+    setEnded(null);
+  }
+
   // First load (works for people who are not in the space yet).
   useEffect(() => {
-    if (!uid) return;
+    if (!uid || !code) return;
     let cancelled = false;
     void api<{ space?: SpaceView }>(`/api/spaces/${code}?uid=${encodeURIComponent(uid)}`).then(
       (r) => {

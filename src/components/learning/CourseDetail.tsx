@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -56,13 +55,16 @@ const RESOURCE_BUCKET = "shared-resources";
 const ASSIGNMENT_ATTACHMENT_BUCKET = "assignment-attachments";
 const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
 const SUPPORTED_UPLOAD_TYPES = new Set([
-  "application/pdf", "application/msword",
+  "application/pdf",
+  "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain", "image/png", "image/jpeg",
+  "text/plain",
+  "image/png",
+  "image/jpeg",
 ]);
 
 function localDateTimeValue(date: Date) {
@@ -94,12 +96,8 @@ export function CourseDetail({ course }: { course: Course }) {
   const [relatedAssignments, setRelatedAssignments] = useState<RelatedAssignment[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, string>>({});
-  const [feedbackDrafts, setFeedbackDrafts] = useState<
-    Record<string, string>
-  >({});
-  const [savingSubmission, setSavingSubmission] = useState<string | null>(
-    null,
-  );
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
+  const [savingSubmission, setSavingSubmission] = useState<string | null>(null);
   const [savingReview, setSavingReview] = useState<string | null>(null);
 
   const [editorKind, setEditorKind] = useState<ContentKind | null>(null);
@@ -107,21 +105,17 @@ export function CourseDetail({ course }: { course: Course }) {
   const [minutes, setMinutes] = useState("10");
   const [summary, setSummary] = useState("");
   const [content, setContent] = useState("");
-  const [contentType, setContentType] = useState<"reading" | "video">(
-    "reading",
-  );
+  const [contentType, setContentType] = useState<"reading" | "video">("reading");
   const [savingContent, setSavingContent] = useState(false);
   const [contentFile, setContentFile] = useState<File | null>(null);
   const [exerciseDueAt, setExerciseDueAt] = useState("");
   const [resourceRefreshKey, setResourceRefreshKey] = useState(0);
 
-  const [openLesson, setOpenLesson] = useState<string | null>(
-    course.lessons[0]?.id ?? null,
-  );
+  const [openLesson, setOpenLesson] = useState<string | null>(course.lessons[0]?.id ?? null);
 
   const progress = courseProgress({ ...course, lessons }, completedLessons);
 
-    useEffect(() => {
+  useEffect(() => {
     const frame = requestAnimationFrame(() => {
       setLessons(course.lessons);
       setOpenLesson(course.lessons[0]?.id ?? null);
@@ -134,8 +128,7 @@ export function CourseDetail({ course }: { course: Course }) {
     try {
       setInviteCode(null);
       const supabase = getSupabase();
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
       if (authError) throw authError;
 
@@ -152,17 +145,8 @@ export function CourseDetail({ course }: { course: Course }) {
       const currentUserId = authData.user.id;
       setUserId(currentUserId);
 
-      const [
-        ownerResult,
-        enrollmentResult,
-        lessonsResult,
-        submissionsResult,
-      ] = await Promise.all([
-        supabase
-          .from("courses")
-          .select("created_by, published")
-          .eq("id", course.id)
-          .maybeSingle(),
+      const [ownerResult, enrollmentResult, lessonsResult, submissionsResult] = await Promise.all([
+        supabase.from("courses").select("created_by, published").eq("id", course.id).maybeSingle(),
 
         supabase
           .from("course_enrollments")
@@ -194,12 +178,9 @@ export function CourseDetail({ course }: { course: Course }) {
       setIsOwner(owner);
       setIsPrivateCourse(privateCourse);
       setEnrolled(Boolean(enrollmentResult.data));
-      setCompletedLessons(
-        (lessonsResult.data ?? []).map((row) => row.lesson_id),
-      );
+      setCompletedLessons((lessonsResult.data ?? []).map((row) => row.lesson_id));
 
-      const loadedSubmissions =
-        (submissionsResult.data ?? []) as TpSubmission[];
+      const loadedSubmissions = (submissionsResult.data ?? []) as TpSubmission[];
 
       if (owner) {
         const { data: code, error: inviteCodeError } = await supabase.rpc(
@@ -235,17 +216,12 @@ export function CourseDetail({ course }: { course: Course }) {
 
       setGradeDrafts(
         Object.fromEntries(
-          loadedSubmissions.map((item) => [
-            item.id,
-            item.grade === null ? "" : String(item.grade),
-          ]),
+          loadedSubmissions.map((item) => [item.id, item.grade === null ? "" : String(item.grade)]),
         ),
       );
 
       setFeedbackDrafts(
-        Object.fromEntries(
-          loadedSubmissions.map((item) => [item.id, item.feedback ?? ""]),
-        ),
+        Object.fromEntries(loadedSubmissions.map((item) => [item.id, item.feedback ?? ""])),
       );
     } catch (error) {
       console.error("Unable to load course data:", error);
@@ -255,7 +231,7 @@ export function CourseDetail({ course }: { course: Course }) {
     }
   }, [course.id, toast]);
 
-    useEffect(() => {
+  useEffect(() => {
     const frame = requestAnimationFrame(() => {
       void loadProgress();
     });
@@ -297,11 +273,7 @@ export function CourseDetail({ course }: { course: Course }) {
       return;
     }
 
-    if (
-      !Number.isInteger(parsedMinutes) ||
-      parsedMinutes < 1 ||
-      parsedMinutes > 1440
-    ) {
+    if (!Number.isInteger(parsedMinutes) || parsedMinutes < 1 || parsedMinutes > 1440) {
       toast.push("Duration must be between 1 and 1440 minutes.");
       return;
     }
@@ -314,7 +286,10 @@ export function CourseDetail({ course }: { course: Course }) {
       toast.push("The attached file must be 20 MB or smaller.");
       return;
     }
-    if (editorKind === "exercise" && (!new Date(exerciseDueAt).getTime() || new Date(exerciseDueAt).getTime() <= Date.now())) {
+    if (
+      editorKind === "exercise" &&
+      (!new Date(exerciseDueAt).getTime() || new Date(exerciseDueAt).getTime() <= Date.now())
+    ) {
       toast.push("Choose a TP deadline in the future.");
       return;
     }
@@ -356,24 +331,43 @@ export function CourseDetail({ course }: { course: Course }) {
           if (contentFile) {
             const safeName = contentFile.name.replace(/[^\p{L}\p{N}._-]+/gu, "-");
             attachmentPath = `${userId}/${assignmentId}/${crypto.randomUUID()}-${safeName}`;
-            const { error } = await supabase.storage.from(ASSIGNMENT_ATTACHMENT_BUCKET)
-              .upload(attachmentPath, contentFile, { contentType: contentFile.type, upsert: false });
+            const { error } = await supabase.storage
+              .from(ASSIGNMENT_ATTACHMENT_BUCKET)
+              .upload(attachmentPath, contentFile, {
+                contentType: contentFile.type,
+                upsert: false,
+              });
             if (error) throw error;
-            const { error: updateError } = await supabase.from("assignments").update({
-              attachment_path: attachmentPath,
-              attachment_name: contentFile.name,
-            }).eq("id", assignmentId);
+            const { error: updateError } = await supabase
+              .from("assignments")
+              .update({
+                attachment_path: attachmentPath,
+                attachment_name: contentFile.name,
+              })
+              .eq("id", assignmentId);
             if (updateError) throw updateError;
           }
         } catch (error) {
-          if (attachmentPath) await supabase.storage.from(ASSIGNMENT_ATTACHMENT_BUCKET).remove([attachmentPath]);
+          if (attachmentPath)
+            await supabase.storage.from(ASSIGNMENT_ATTACHMENT_BUCKET).remove([attachmentPath]);
           await supabase.from("assignments").delete().eq("id", assignmentId);
           throw error;
         }
-        const newAssignment = { id: assignmentId, title: cleanTitle, due_at: new Date(exerciseDueAt).toISOString(), points: 100 };
-        setRelatedAssignments((current) => [...current, newAssignment].sort((a, b) => a.due_at.localeCompare(b.due_at)));
+        const newAssignment = {
+          id: assignmentId,
+          title: cleanTitle,
+          due_at: new Date(exerciseDueAt).toISOString(),
+          points: 100,
+        };
+        setRelatedAssignments((current) =>
+          [...current, newAssignment].sort((a, b) => a.due_at.localeCompare(b.due_at)),
+        );
         setEditorKind(null);
-        setTitle(""); setMinutes("10"); setSummary(""); setContent(""); setContentFile(null);
+        setTitle("");
+        setMinutes("10");
+        setSummary("");
+        setContent("");
+        setContentFile(null);
         toast.push("TP added to assignments successfully.");
         return;
       }
@@ -381,10 +375,7 @@ export function CourseDetail({ course }: { course: Course }) {
       const type: LessonType = contentType;
 
       const nextPosition =
-        lessons.reduce(
-          (highest, lesson, index) => Math.max(highest, index + 1),
-          0,
-        ) + 1;
+        lessons.reduce((highest, lesson, index) => Math.max(highest, index + 1), 0) + 1;
 
       const { data: insertedLesson, error: insertError } = await supabase
         .from("course_lessons")
@@ -398,40 +389,48 @@ export function CourseDetail({ course }: { course: Course }) {
           content: cleanContent,
           position: nextPosition,
         })
-        .select(
-          "id, course_id, title, type, minutes, summary, content, position",
-        )
+        .select("id, course_id, title, type, minutes, summary, content, position")
         .single();
 
       if (insertError) throw insertError;
 
       // Lessons are also published as course resources. If no file was attached,
       // publish the lesson text as a small text document so it remains downloadable.
-      const resourceFile = contentFile ?? new File(
-        [`${cleanTitle}\n\n${cleanSummary ? `${cleanSummary}\n\n` : ""}${cleanContent}`],
-        `${cleanTitle.replace(/[^\p{L}\p{N}._-]+/gu, "-")}.txt`,
-        { type: "text/plain" },
-      );
+      const resourceFile =
+        contentFile ??
+        new File(
+          [`${cleanTitle}\n\n${cleanSummary ? `${cleanSummary}\n\n` : ""}${cleanContent}`],
+          `${cleanTitle.replace(/[^\p{L}\p{N}._-]+/gu, "-")}.txt`,
+          { type: "text/plain" },
+        );
       let resourcePath: string | null = null;
       let resourceId: string | null = null;
       try {
         const safeName = resourceFile.name.replace(/[^\p{L}\p{N}._-]+/gu, "-");
         resourcePath = `${userId}/${crypto.randomUUID()}-${safeName}`;
-        const { error: uploadError } = await supabase.storage.from(RESOURCE_BUCKET)
-          .upload(resourcePath, resourceFile, { contentType: resourceFile.type || "text/plain", upsert: false });
+        const { error: uploadError } = await supabase.storage
+          .from(RESOURCE_BUCKET)
+          .upload(resourcePath, resourceFile, {
+            contentType: resourceFile.type || "text/plain",
+            upsert: false,
+          });
         if (uploadError) throw uploadError;
-        const { data: resource, error: resourceError } = await supabase.from("shared_resources").insert({
-          title: cleanTitle,
-          type: contentType === "video" ? "Video" : "Article",
-          description: cleanSummary || cleanContent.slice(0, 1000),
-          category: "Course lesson",
-          minutes: parsedMinutes,
-          file_name: contentFile?.name ?? resourceFile.name,
-          mime_type: resourceFile.type || "text/plain",
-          file_size: resourceFile.size,
-          storage_path: resourcePath,
-          uploaded_by: userId,
-        }).select("id").single();
+        const { data: resource, error: resourceError } = await supabase
+          .from("shared_resources")
+          .insert({
+            title: cleanTitle,
+            type: contentType === "video" ? "Video" : "Article",
+            description: cleanSummary || cleanContent.slice(0, 1000),
+            category: "Course lesson",
+            minutes: parsedMinutes,
+            file_name: contentFile?.name ?? resourceFile.name,
+            mime_type: resourceFile.type || "text/plain",
+            file_size: resourceFile.size,
+            storage_path: resourcePath,
+            uploaded_by: userId,
+          })
+          .select("id")
+          .single();
         if (resourceError) throw resourceError;
         resourceId = resource.id as string;
         const { error: linkError } = await supabase.from("course_resources").insert({
@@ -475,10 +474,7 @@ export function CourseDetail({ course }: { course: Course }) {
     }
   }
 
-  async function handleSubmitTp(
-    event: FormEvent<HTMLFormElement>,
-    lesson: Lesson,
-  ) {
+  async function handleSubmitTp(event: FormEvent<HTMLFormElement>, lesson: Lesson) {
     event.preventDefault();
 
     if (!userId) {
@@ -503,11 +499,7 @@ export function CourseDetail({ course }: { course: Course }) {
       return;
     }
 
-    if (
-      submissions.some(
-        (item) => item.lesson_id === lesson.id && item.student_id === userId,
-      )
-    ) {
+    if (submissions.some((item) => item.lesson_id === lesson.id && item.student_id === userId)) {
       toast.push("You have already submitted this TP.");
       return;
     }
@@ -546,10 +538,7 @@ export function CourseDetail({ course }: { course: Course }) {
     }
   }
 
-  async function handleReviewTp(
-    event: FormEvent<HTMLFormElement>,
-    submission: TpSubmission,
-  ) {
+  async function handleReviewTp(event: FormEvent<HTMLFormElement>, submission: TpSubmission) {
     event.preventDefault();
 
     if (!userId || !isOwner) {
@@ -561,12 +550,7 @@ export function CourseDetail({ course }: { course: Course }) {
     const grade = Number(rawGrade);
     const feedback = (feedbackDrafts[submission.id] ?? "").trim();
 
-    if (
-      rawGrade.trim() === "" ||
-      !Number.isFinite(grade) ||
-      grade < 0 ||
-      grade > 100
-    ) {
+    if (rawGrade.trim() === "" || !Number.isFinite(grade) || grade < 0 || grade > 100) {
       toast.push("Enter a grade between 0 and 100.");
       return;
     }
@@ -594,17 +578,13 @@ export function CourseDetail({ course }: { course: Course }) {
       const updatedSubmission = data as TpSubmission;
 
       setSubmissions((current) =>
-        current.map((item) =>
-          item.id === updatedSubmission.id ? updatedSubmission : item,
-        ),
+        current.map((item) => (item.id === updatedSubmission.id ? updatedSubmission : item)),
       );
 
       toast.push("TP correction saved successfully.");
     } catch (error) {
       console.error("Unable to review TP:", error);
-      toast.push(
-        "Could not save the correction. Check the Supabase permissions and try again.",
-      );
+      toast.push("Could not save the correction. Check the Supabase permissions and try again.");
     } finally {
       setSavingReview(null);
     }
@@ -635,10 +615,7 @@ export function CourseDetail({ course }: { course: Course }) {
       } else {
         const { error } = await supabase
           .from("course_enrollments")
-          .upsert(
-            { user_id: userId, course_id: course.id },
-            { onConflict: "user_id,course_id" },
-          );
+          .upsert({ user_id: userId, course_id: course.id }, { onConflict: "user_id,course_id" });
 
         if (error) throw error;
 
@@ -679,21 +656,17 @@ export function CourseDetail({ course }: { course: Course }) {
 
         if (error) throw error;
 
-        setCompletedLessons((current) =>
-          current.filter((id) => id !== lessonId),
-        );
+        setCompletedLessons((current) => current.filter((id) => id !== lessonId));
         toast.push("Lesson marked as not done");
       } else {
-        const { error } = await supabase
-          .from("lesson_completions")
-          .upsert(
-            {
-              user_id: userId,
-              course_id: course.id,
-              lesson_id: lessonId,
-            },
-            { onConflict: "user_id,lesson_id" },
-          );
+        const { error } = await supabase.from("lesson_completions").upsert(
+          {
+            user_id: userId,
+            course_id: course.id,
+            lesson_id: lessonId,
+          },
+          { onConflict: "user_id,lesson_id" },
+        );
 
         if (error) throw error;
 
@@ -734,13 +707,11 @@ export function CourseDetail({ course }: { course: Course }) {
       const code = String(data);
       setInviteCode(code);
 
-      const { error: saveError } = await supabase.rpc(
-        "save_course_invite_code",
-        { p_course_id: course.id, p_code: code },
-      );
-      toast.push(
-        saveError ? t("courses.codeGeneratedNotSaved") : t("courses.codeGenerated"),
-      );
+      const { error: saveError } = await supabase.rpc("save_course_invite_code", {
+        p_course_id: course.id,
+        p_code: code,
+      });
+      toast.push(saveError ? t("courses.codeGeneratedNotSaved") : t("courses.codeGenerated"));
     } catch (error) {
       console.error("Could not generate course invitation code:", error);
       toast.push(t("courses.codeGenerateFailed"));
@@ -770,23 +741,28 @@ export function CourseDetail({ course }: { course: Course }) {
 
             <h1 className="mt-3 text-2xl font-semibold">{course.title}</h1>
 
-            <p className="mt-1.5 text-sm text-cova-mute">
-              {course.description}
-            </p>
+            <p className="mt-1.5 text-sm text-cova-mute">{course.description}</p>
 
             <p className="mt-3 text-sm text-cova-mute">
-              Taught by {course.instructor} ·{" "}
-              {course.learners.toLocaleString("en-US")} learners
+              Taught by {course.instructor} · {course.learners.toLocaleString("en-US")} learners
             </p>
 
             {isOwner && inviteCode && (
               <div className="mt-4 rounded-lg border border-cova-line p-4">
                 <p className="text-sm font-semibold">{t("courses.yourInvitationCode")}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <code dir="ltr" className="rounded bg-cova-pale px-3 py-2 font-mono text-lg tracking-widest">
+                  <code
+                    dir="ltr"
+                    className="rounded bg-cova-pale px-3 py-2 font-mono text-lg tracking-widest"
+                  >
                     {inviteCode}
                   </code>
-                  <Button type="button" variant="secondary" size="sm" onClick={() => void copyInviteCode()}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void copyInviteCode()}
+                  >
                     <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
                     {t("courses.copyCode")}
                   </Button>
@@ -819,7 +795,7 @@ export function CourseDetail({ course }: { course: Course }) {
                   <span>Progress</span>
                   <span>{progress.pct}%</span>
                 </div>
-                <ProgressBar value={progress.pct} label="Course progress" />
+                <ProgressBar value={progress.pct} label={t("course.progress")} />
               </div>
             )}
 
@@ -830,7 +806,7 @@ export function CourseDetail({ course }: { course: Course }) {
               onClick={() => void toggleEnrollment()}
             >
               {loading
-                ? "Loading..."
+                ? t("course.loading")
                 : savingEnrollment
                   ? "Saving..."
                   : enrolled
@@ -856,10 +832,7 @@ export function CourseDetail({ course }: { course: Course }) {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => openContentEditor("lesson")}
-                disabled={savingContent}
-              >
+              <Button onClick={() => openContentEditor("lesson")} disabled={savingContent}>
                 <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
                 Add a lesson
               </Button>
@@ -881,9 +854,7 @@ export function CourseDetail({ course }: { course: Course }) {
               >
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="font-medium">
-                    {editorKind === "exercise"
-                      ? "Create a practical exercise"
-                      : "Create a lesson"}
+                    {editorKind === "exercise" ? "Create a practical exercise" : "Create a lesson"}
                   </h3>
 
                   <button
@@ -891,17 +862,14 @@ export function CourseDetail({ course }: { course: Course }) {
                     onClick={closeContentEditor}
                     disabled={savingContent}
                     className="rounded-md p-1 text-cova-mute hover:text-cova-ink"
-                    aria-label="Close form"
+                    aria-label={t("course.closeForm")}
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="content-title"
-                    className="mb-1.5 block text-sm font-medium"
-                  >
+                  <label htmlFor="content-title" className="mb-1.5 block text-sm font-medium">
                     Title
                   </label>
                   <input
@@ -919,27 +887,37 @@ export function CourseDetail({ course }: { course: Course }) {
                   />
                 </div>
 
-                {editorKind === "exercise" && <div>
-                  <label htmlFor="tp-deadline" className="mb-1.5 block text-sm font-medium">Deadline</label>
-                  <input id="tp-deadline" type="datetime-local" value={exerciseDueAt} min={localDateTimeValue(new Date(now + 60_000))} onChange={(event) => setExerciseDueAt(event.target.value)} required className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft" />
-                  <p className="mt-1 text-xs text-cova-mute">Score starts at 100. Late submissions receive a score reduced proportionally to the time allowed.</p>
-                </div>}
+                {editorKind === "exercise" && (
+                  <div>
+                    <label htmlFor="tp-deadline" className="mb-1.5 block text-sm font-medium">
+                      Deadline
+                    </label>
+                    <input
+                      id="tp-deadline"
+                      type="datetime-local"
+                      value={exerciseDueAt}
+                      min={localDateTimeValue(new Date(now + 60_000))}
+                      onChange={(event) => setExerciseDueAt(event.target.value)}
+                      required
+                      className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
+                    />
+                    <p className="mt-1 text-xs text-cova-mute">
+                      Score starts at 100. Late submissions receive a score reduced proportionally
+                      to the time allowed.
+                    </p>
+                  </div>
+                )}
 
                 {editorKind === "lesson" && (
                   <div>
-                    <label
-                      htmlFor="content-type"
-                      className="mb-1.5 block text-sm font-medium"
-                    >
+                    <label htmlFor="content-type" className="mb-1.5 block text-sm font-medium">
                       Lesson format
                     </label>
                     <select
                       id="content-type"
                       value={contentType}
                       onChange={(event) =>
-                        setContentType(
-                          event.target.value as "reading" | "video",
-                        )
+                        setContentType(event.target.value as "reading" | "video")
                       }
                       className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
                     >
@@ -949,38 +927,48 @@ export function CourseDetail({ course }: { course: Course }) {
                   </div>
                 )}
 
-                {editorKind === "lesson" && <div>
-                  <label
-                    htmlFor="content-minutes"
-                    className="mb-1.5 block text-sm font-medium"
-                  >
-                    Duration (minutes)
-                  </label>
-                  <input
-                    id="content-minutes"
-                    type="number"
-                    min={1}
-                    max={1440}
-                    step={1}
-                    value={minutes}
-                    onChange={(event) => setMinutes(event.target.value)}
-                    required
-                    className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
-                  />
-                </div>}
+                {editorKind === "lesson" && (
+                  <div>
+                    <label htmlFor="content-minutes" className="mb-1.5 block text-sm font-medium">
+                      Duration (minutes)
+                    </label>
+                    <input
+                      id="content-minutes"
+                      type="number"
+                      min={1}
+                      max={1440}
+                      step={1}
+                      value={minutes}
+                      onChange={(event) => setMinutes(event.target.value)}
+                      required
+                      className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
+                    />
+                  </div>
+                )}
 
                 <div>
-                  <label htmlFor="content-document" className="mb-1.5 block text-sm font-medium">Attach a document (optional)</label>
-                  <input id="content-document" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.png,.jpg,.jpeg" onChange={(event) => setContentFile(event.target.files?.[0] ?? null)} disabled={savingContent} className="block w-full rounded-lg border border-cova-line bg-white p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-cova-pale file:px-3 file:py-1.5" />
-                  <p className="mt-1 text-xs text-cova-mute">PDF, Office, text or image · up to 20 MB{editorKind === "lesson" ? ". A text resource is generated automatically when no file is attached." : ". Students can download it from Assignments."}</p>
+                  <label htmlFor="content-document" className="mb-1.5 block text-sm font-medium">
+                    Attach a document (optional)
+                  </label>
+                  <input
+                    id="content-document"
+                    type="file"
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.png,.jpg,.jpeg"
+                    onChange={(event) => setContentFile(event.target.files?.[0] ?? null)}
+                    disabled={savingContent}
+                    className="block w-full rounded-lg border border-cova-line bg-white p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-cova-pale file:px-3 file:py-1.5"
+                  />
+                  <p className="mt-1 text-xs text-cova-mute">
+                    PDF, Office, text or image · up to 20 MB
+                    {editorKind === "lesson"
+                      ? ". A text resource is generated automatically when no file is attached."
+                      : ". Students can download it from Assignments."}
+                  </p>
                   {contentFile && <p className="mt-1 text-xs text-cova-mute">{contentFile.name}</p>}
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="content-summary"
-                    className="mb-1.5 block text-sm font-medium"
-                  >
+                  <label htmlFor="content-summary" className="mb-1.5 block text-sm font-medium">
                     Short summary
                   </label>
                   <textarea
@@ -989,19 +977,14 @@ export function CourseDetail({ course }: { course: Course }) {
                     onChange={(event) => setSummary(event.target.value)}
                     maxLength={2000}
                     rows={2}
-                    placeholder="What will students learn or practise?"
+                    placeholder={t("course.learning")}
                     className="w-full resize-y rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
                   />
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="content-body"
-                    className="mb-1.5 block text-sm font-medium"
-                  >
-                    {editorKind === "exercise"
-                      ? "TP instructions"
-                      : "Full lesson content"}
+                  <label htmlFor="content-body" className="mb-1.5 block text-sm font-medium">
+                    {editorKind === "exercise" ? "TP instructions" : "Full lesson content"}
                   </label>
                   <textarea
                     id="content-body"
@@ -1069,9 +1052,7 @@ export function CourseDetail({ course }: { course: Course }) {
 
                 const mySubmission = userId
                   ? submissions.find(
-                      (item) =>
-                        item.lesson_id === lesson.id &&
-                        item.student_id === userId,
+                      (item) => item.lesson_id === lesson.id && item.student_id === userId,
                     )
                   : undefined;
 
@@ -1091,12 +1072,12 @@ export function CourseDetail({ course }: { course: Course }) {
                         {done ? (
                           <CheckCircle2
                             className="h-5 w-5 shrink-0 text-cova-muted"
-                            aria-label="Completed"
+                            aria-label={t("course.completed")}
                           />
                         ) : (
                           <Circle
                             className="h-5 w-5 shrink-0 text-cova-line"
-                            aria-label="Not completed"
+                            aria-label={t("course.notCompleted")}
                           />
                         )}
 
@@ -1105,10 +1086,7 @@ export function CourseDetail({ course }: { course: Course }) {
                             {i + 1}. {lesson.title}
                           </span>
                           <span className="flex items-center gap-1.5 text-xs text-cova-mute">
-                            <Icon
-                              className="h-3.5 w-3.5"
-                              aria-hidden="true"
-                            />
+                            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                             {lesson.type} · {lesson.minutes} min
                           </span>
                         </span>
@@ -1117,9 +1095,7 @@ export function CourseDetail({ course }: { course: Course }) {
                       {open && (
                         <div className="border-t border-cova-line px-4 pb-4 pt-3">
                           {lesson.summary && (
-                            <p className="text-sm font-medium">
-                              {lesson.summary}
-                            </p>
+                            <p className="text-sm font-medium">{lesson.summary}</p>
                           )}
 
                           {lesson.content ? (
@@ -1137,17 +1113,13 @@ export function CourseDetail({ course }: { course: Course }) {
                           {lesson.type === "exercise" && !loading && (
                             <div className="mt-5 rounded-xl border border-cova-line p-4">
                               <h3 className="text-sm font-semibold">
-                                {isOwner
-                                  ? "Student submissions"
-                                  : "Submit your TP"}
+                                {isOwner ? "Student submissions" : "Submit your TP"}
                               </h3>
 
                               {isOwner ? (
                                 <div className="mt-3 space-y-4">
                                   {lessonSubmissions.length === 0 ? (
-                                    <p className="text-sm text-cova-mute">
-                                      No submissions yet.
-                                    </p>
+                                    <p className="text-sm text-cova-mute">No submissions yet.</p>
                                   ) : (
                                     lessonSubmissions.map((submission) => (
                                       <div
@@ -1156,14 +1128,11 @@ export function CourseDetail({ course }: { course: Course }) {
                                       >
                                         <div className="flex flex-wrap items-center justify-between gap-2">
                                           <span className="text-xs text-cova-mute">
-                                            Student ID:{" "}
-                                            {submission.student_id}
+                                            Student ID: {submission.student_id}
                                           </span>
                                           <Badge
                                             tone={
-                                              submission.status === "reviewed"
-                                                ? "soft"
-                                                : "outline"
+                                              submission.status === "reviewed" ? "soft" : "outline"
                                             }
                                           >
                                             {submission.status === "reviewed"
@@ -1173,8 +1142,7 @@ export function CourseDetail({ course }: { course: Course }) {
                                         </div>
 
                                         <p className="mt-2 text-xs text-cova-mute">
-                                          Submitted:{" "}
-                                          {formatDate(submission.submitted_at)}
+                                          Submitted: {formatDate(submission.submitted_at)}
                                         </p>
 
                                         <div className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-cova-soft/20 p-3 text-sm">
@@ -1183,10 +1151,7 @@ export function CourseDetail({ course }: { course: Course }) {
 
                                         <form
                                           onSubmit={(event) =>
-                                            void handleReviewTp(
-                                              event,
-                                              submission,
-                                            )
+                                            void handleReviewTp(event, submission)
                                           }
                                           className="mt-4 space-y-3"
                                         >
@@ -1204,14 +1169,11 @@ export function CourseDetail({ course }: { course: Course }) {
                                               max={100}
                                               step="0.01"
                                               required
-                                              value={
-                                                gradeDrafts[submission.id] ?? ""
-                                              }
+                                              value={gradeDrafts[submission.id] ?? ""}
                                               onChange={(event) =>
                                                 setGradeDrafts((current) => ({
                                                   ...current,
-                                                  [submission.id]:
-                                                    event.target.value,
+                                                  [submission.id]: event.target.value,
                                                 }))
                                               }
                                               className="w-full rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
@@ -1229,19 +1191,12 @@ export function CourseDetail({ course }: { course: Course }) {
                                               id={`feedback-${submission.id}`}
                                               rows={3}
                                               maxLength={10000}
-                                              value={
-                                                feedbackDrafts[
-                                                  submission.id
-                                                ] ?? ""
-                                              }
+                                              value={feedbackDrafts[submission.id] ?? ""}
                                               onChange={(event) =>
-                                                setFeedbackDrafts(
-                                                  (current) => ({
-                                                    ...current,
-                                                    [submission.id]:
-                                                      event.target.value,
-                                                  }),
-                                                )
+                                                setFeedbackDrafts((current) => ({
+                                                  ...current,
+                                                  [submission.id]: event.target.value,
+                                                }))
                                               }
                                               placeholder="Explain what was done well and what can be improved..."
                                               className="w-full resize-y rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
@@ -1250,19 +1205,14 @@ export function CourseDetail({ course }: { course: Course }) {
 
                                           {submission.reviewed_at && (
                                             <p className="text-xs text-cova-mute">
-                                              Last reviewed:{" "}
-                                              {formatDate(
-                                                submission.reviewed_at,
-                                              )}
+                                              Last reviewed: {formatDate(submission.reviewed_at)}
                                             </p>
                                           )}
 
                                           <Button
                                             type="submit"
                                             size="sm"
-                                            disabled={
-                                              savingReview === submission.id
-                                            }
+                                            disabled={savingReview === submission.id}
                                           >
                                             {savingReview === submission.id
                                               ? "Saving correction..."
@@ -1286,11 +1236,7 @@ export function CourseDetail({ course }: { course: Course }) {
                               ) : mySubmission ? (
                                 <div className="mt-3 space-y-3">
                                   <Badge
-                                    tone={
-                                      mySubmission.status === "reviewed"
-                                        ? "soft"
-                                        : "outline"
-                                    }
+                                    tone={mySubmission.status === "reviewed" ? "soft" : "outline"}
                                   >
                                     {mySubmission.status === "reviewed"
                                       ? "Correction available"
@@ -1298,14 +1244,11 @@ export function CourseDetail({ course }: { course: Course }) {
                                   </Badge>
 
                                   <p className="text-xs text-cova-mute">
-                                    Submitted:{" "}
-                                    {formatDate(mySubmission.submitted_at)}
+                                    Submitted: {formatDate(mySubmission.submitted_at)}
                                   </p>
 
                                   <div>
-                                    <p className="mb-1 text-sm font-medium">
-                                      Your answer
-                                    </p>
+                                    <p className="mb-1 text-sm font-medium">Your answer</p>
                                     <div className="whitespace-pre-wrap break-words rounded-lg bg-cova-soft/20 p-3 text-sm">
                                       {mySubmission.answer}
                                     </div>
@@ -1313,9 +1256,7 @@ export function CourseDetail({ course }: { course: Course }) {
 
                                   {mySubmission.status === "reviewed" ? (
                                     <div className="rounded-lg border border-cova-line p-3">
-                                      <p className="text-sm font-medium">
-                                        Your grade
-                                      </p>
+                                      <p className="text-sm font-medium">Your grade</p>
                                       <p className="mt-1 text-2xl font-semibold">
                                         {mySubmission.grade ?? "—"}
                                         <span className="text-sm font-normal text-cova-mute">
@@ -1324,9 +1265,7 @@ export function CourseDetail({ course }: { course: Course }) {
                                         </span>
                                       </p>
 
-                                      <p className="mt-3 text-sm font-medium">
-                                        Teacher feedback
-                                      </p>
+                                      <p className="mt-3 text-sm font-medium">Teacher feedback</p>
                                       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-cova-mute">
                                         {mySubmission.feedback ||
                                           "No written feedback was provided."}
@@ -1334,23 +1273,20 @@ export function CourseDetail({ course }: { course: Course }) {
 
                                       {mySubmission.reviewed_at && (
                                         <p className="mt-3 text-xs text-cova-mute">
-                                          Reviewed:{" "}
-                                          {formatDate(mySubmission.reviewed_at)}
+                                          Reviewed: {formatDate(mySubmission.reviewed_at)}
                                         </p>
                                       )}
                                     </div>
                                   ) : (
                                     <p className="text-sm text-cova-mute">
-                                      Your answer has been sent. You cannot
-                                      change it while it is awaiting correction.
+                                      Your answer has been sent. You cannot change it while it is
+                                      awaiting correction.
                                     </p>
                                   )}
                                 </div>
                               ) : (
                                 <form
-                                  onSubmit={(event) =>
-                                    void handleSubmitTp(event, lesson)
-                                  }
+                                  onSubmit={(event) => void handleSubmitTp(event, lesson)}
                                   className="mt-3 space-y-3"
                                 >
                                   <label
@@ -1375,16 +1311,10 @@ export function CourseDetail({ course }: { course: Course }) {
                                     className="w-full resize-y rounded-lg border border-cova-line bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cova-soft"
                                   />
                                   <p className="text-xs text-cova-mute">
-                                    Maximum 50,000 characters. Check your
-                                    answer before submitting.
+                                    Maximum 50,000 characters. Check your answer before submitting.
                                   </p>
-                                  <Button
-                                    type="submit"
-                                    disabled={savingSubmission === lesson.id}
-                                  >
-                                    {savingSubmission === lesson.id
-                                      ? "Submitting..."
-                                      : "Submit TP"}
+                                  <Button type="submit" disabled={savingSubmission === lesson.id}>
+                                    {savingSubmission === lesson.id ? "Submitting..." : "Submit TP"}
                                   </Button>
                                 </form>
                               )}
@@ -1392,18 +1322,14 @@ export function CourseDetail({ course }: { course: Course }) {
                           )}
 
                           {loading ? (
-                            <p className="mt-3 text-xs text-cova-mute">
-                              Loading progress...
-                            </p>
+                            <p className="mt-3 text-xs text-cova-mute">Loading progress...</p>
                           ) : enrolled && !isOwner ? (
                             <Button
                               size="sm"
                               className="mt-3"
                               disabled={savingLesson === lesson.id}
                               variant={done ? "secondary" : "primary"}
-                              onClick={() =>
-                                void toggleLesson(lesson.id, done)
-                              }
+                              onClick={() => void toggleLesson(lesson.id, done)}
                             >
                               {savingLesson === lesson.id
                                 ? "Saving..."
@@ -1434,14 +1360,17 @@ export function CourseDetail({ course }: { course: Course }) {
           <Card>
             <CardBody>
               {relatedAssignments.length === 0 ? (
-                <p className="text-sm text-cova-mute">
-                  No assignments for this course yet.
-                </p>
+                <p className="text-sm text-cova-mute">No assignments for this course yet.</p>
               ) : (
                 <ul className="space-y-3">
                   {relatedAssignments.map((a) => (
                     <li key={a.id}>
-                      <Link href={`/assignments/${a.id}`} className="text-sm font-medium hover:underline">{a.title}</Link>
+                      <Link
+                        href={`/assignments/${a.id}`}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        {a.title}
+                      </Link>
                       <p className="text-xs text-cova-mute">
                         {dueLabel(a.due_at)} · {a.points} pts
                       </p>

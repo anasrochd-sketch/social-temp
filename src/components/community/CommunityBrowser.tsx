@@ -98,7 +98,7 @@ export function CommunityBrowser({ initialJoinCode = "" }: { initialJoinCode?: s
   );
 
   if (!hydrated || !me) {
-    return <CardGridSkeleton count={3} />;
+    return <CardGridSkeleton label={t("common.loading")} count={3} />;
   }
   const myCount = social.members.filter((m) => m.userId === meId).length;
   const friendRequests = incomingRequests(social, meId).length;
@@ -235,7 +235,7 @@ export function CommunityBrowser({ initialJoinCode = "" }: { initialJoinCode?: s
           {tab === "myCommunities" && (
             <div className="space-y-8">
               {pending.length > 0 && (
-                <section aria-label="Requests waiting for approval">
+                <section aria-label={t("community.requestsAria")}>
                   <h2 className="mb-3 text-sm font-semibold">{t("community.waitingApproval")}</h2>
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {pending.map((c) => (

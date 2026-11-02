@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { AvatarStage } from "@/components/voicing/AvatarStage";
-import { AVATARS } from "@/components/voicing/avatars";
+import { AVATARS, readSavedAvatar } from "@/components/voicing/avatars";
 import { useS } from "@/i18n/spaces";
 import { cn } from "@/lib/utils";
 import type { SpaceEnd, SpaceView } from "@/lib/spaces-client";
@@ -25,7 +25,7 @@ const wobble = () => 0.3 + 0.3 * Math.sin(performance.now() / 170);
 export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }: Props) {
   const t = useS();
   const [name, setName] = useState(defaultName);
-  const [avatar, setAvatar] = useState(AVATARS[0]!.id);
+  const [avatar, setAvatar] = useState(readSavedAvatar);
   const [side, setSide] = useState<"left" | "right">("left");
   const [busy, setBusy] = useState(false);
   const isVoice = view.kind === "voice";
@@ -57,6 +57,11 @@ export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }:
 
   const go = async () => {
     setBusy(true);
+    try {
+      window.localStorage.setItem("cova-avatar", avatar);
+    } catch {
+      /* storage unavailable */
+    }
     await onJoin({ name: name.trim() || defaultName, avatar, side });
     setBusy(false);
   };
@@ -106,13 +111,17 @@ export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }:
                         className={cn(
                           "rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
                           avatar === a.id
-                            ? "border-cova-ink bg-cova-pale"
+                            ? "border-cova-ink bg-cova-pale ring-2 ring-cova-ink/20"
                             : "border-cova-line hover:bg-cova-bg",
                         )}
                       >
                         <span
-                          className="mx-auto mb-1 block h-6 w-6 rounded-full"
-                          style={{ background: `#${a.color.toString(16).padStart(6, "0")}` }}
+                          className="mx-auto mb-1 block h-7 w-7 rounded-full shadow-inner"
+                          style={{
+                            background: `radial-gradient(circle at 30% 25%, #${a.accent
+                              .toString(16)
+                              .padStart(6, "0")}, #${a.color.toString(16).padStart(6, "0")})`,
+                          }}
                           aria-hidden="true"
                         />
                         {a.label}

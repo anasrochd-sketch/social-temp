@@ -1007,7 +1007,6 @@ export const en = {
   "group.noGroupId": "The server did not return a group ID.",
   "group.joinError": "Could not join this group. Check the invite code and try again.",
   "group.newGroup": "Create a new group",
-  "group.name": "Group name",
   "group.namePlaceholder": "e.g. English learners",
   "group.description": "Description",
   "group.descriptionPlaceholder": "What is this group about?",
@@ -1042,6 +1041,101 @@ export const en = {
   "groupDetail.yourRole": "Your role",
   "groupDetail.notMember": "Not a member",
   "groupDetail.postError": "Could not publish the message. Check your membership and permissions.",
+
+  // Remote control (DM calls)
+  "call.peerSharing": "The other side is sharing their screen",
+  "call.ctlAllow": "Allow remote control",
+  "call.ctlDisallow": "Stop remote control",
+  "call.ctlStop": "Stop",
+  "call.ctlActive": "Your screen is being controlled",
+  "call.ctlYou": "You are in control",
+  "call.ctlRequest": "Request control",
+  "call.ctlEnterCode": "Enter the control code shown on the shared screen",
+  "call.ctlVerify": "Verify",
+  "call.ctlDenied": "The code was wrong or control was refused.",
+  "call.ctlRevoked": "Remote control was stopped.",
+  "call.ctlNeedShare": "Screen sharing must be on for remote control.",
+  "call.ctlUnavailable": "The control channel is not ready yet — try again in a second.",
+  "call.ctlHint": "Control works inside the app page: click, scroll and keyboard keys.",
+
+  // Group creation modal
+  "group.createDesc": "Start a study or project group for your classmates.",
+  "group.name": "Group name",
+  "group.purpose": "What is this group for?",
+  "group.nameShort": "Give your group a name of at least 3 characters.",
+  "group.descShort": "Describe the group in at least 10 characters.",
+  "group.demoNote":
+    "Demo only: new groups are validated but not saved, because there is no backend yet.",
+  "group.cat.general": "General",
+  "group.cat.technology": "Technology",
+
+  // Admin / settings / notifications pages
+  "admin.title": "Admin",
+  "admin.desc": "A basic overview of the community.",
+  "admin.tabStudents": "Students",
+  "admin.tabGroups": "Groups",
+  "admin.tabCourses": "Courses",
+  "admin.tabReports": "Open reports",
+  "admin.search": "Search students",
+  "settings.title": "Settings",
+  "settings.desc": "Manage your profile, notifications and privacy.",
+  "notifications.title": "Notifications",
+  "notifications.desc": "Updates about your courses, groups and messages.",
+
+  // Course page leftovers
+  "course.unavailableTitle": "Course unavailable",
+  "course.notFoundTitle": "Course not found",
+  "course.notFoundDesc":
+    "This course may have been deleted or you may not have access to its content.",
+  "course.progress": "Course progress",
+  "course.learning": "What will students learn or practise?",
+  "course.loading": "Loading…",
+  "course.completed": "Completed",
+  "course.notCompleted": "Not completed",
+  "course.closeForm": "Close form",
+
+  // People search / profile view
+  "people.sample": "Sample",
+  "people.yourId": "Your ID",
+  "people.tooShort": "Type at least 2 characters.",
+  "people.results": "Search results",
+  "profile.about": "About",
+  "profile.skillsInterests": "Skills and interests",
+  "profile.groups": "Groups",
+  "profile.skills": "Skills",
+  "profile.interests": "Interests",
+
+  // Messages page leftovers
+  "messages.demoNotice":
+    "Messages are delivered between accounts in real time. Sample students never reply.",
+  "messages.unknown": "Unknown person",
+  "messages.listAria": "Conversations",
+  "messages.threadAria": "Conversation",
+
+  // Shared chrome / a11y
+  "common.skip": "Skip to content",
+  "common.loading": "Loading…",
+  "common.closeDialog": "Close dialog",
+  "common.closeNav": "Close navigation",
+  "common.openNav": "Open navigation",
+  "common.mainNav": "Main navigation",
+  "community.requestsAria": "Requests waiting for approval",
+  "admin.demoNote":
+    "Demo only: there is no role check or real moderation here. A production admin area needs authentication, role-based access and an audit log.",
+  "admin.noMatch": "No students match your search.",
+  "admin.studentBadge": "Student",
+  "admin.noReports": "No open reports.",
+  "admin.reportedBy": "Reported by {name}",
+  "admin.markResolved": "Mark resolved",
+  "admin.resolved": "Report marked as resolved",
+  "course.loadError":
+    "Could not load this course. Check your connection and permissions, then try again.",
+  "course.retry": "Retry",
+  "people.shareHint": "Share it so people can find you. They can also search for {name}.",
+  "people.nobodyTitle": "Nobody found",
+  "people.nobodyDesc":
+    "Check the spelling, or ask them for their exact ID from the Community page.",
+  "messages.shareId": "Your ID",
 } as const;
 
 export type MessageKey = keyof typeof en;

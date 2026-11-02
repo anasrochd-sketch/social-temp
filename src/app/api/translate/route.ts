@@ -11,9 +11,12 @@
  * the feature degrades, it never breaks.
  */
 
+import { LANGS } from "@/lib/langs";
+
 export const runtime = "nodejs";
 
-const TARGETS = new Set(["en", "fr", "ar"]);
+/** Every supported target language (see src/lib/langs.ts — 30 languages). */
+const TARGETS = new Set(LANGS.map((l) => l.code));
 const TEXT_MAX = 500;
 const CACHE_MAX = 500;
 const RATE_MAX = 60; // requests per window per IP
@@ -69,7 +72,10 @@ function parseClients5(data: unknown): string {
       .join("")
       .trim();
   }
-  return (data as unknown[]).map((item) => String(item ?? "")).join("").trim();
+  return (data as unknown[])
+    .map((item) => String(item ?? ""))
+    .join("")
+    .trim();
 }
 
 /** api.mymemory.translated.net → { responseData: { translatedText } } */
@@ -127,7 +133,9 @@ export async function POST(req: Request) {
   }
 
   const text = typeof body.text === "string" ? body.text.trim().slice(0, TEXT_MAX) : "";
-  const to = typeof body.to === "string" ? body.to.slice(0, 8) : "";
+  const toRaw = typeof body.to === "string" ? body.to.slice(0, 8) : "";
+  // Accept both "ar" and tags like "ar-SA" / "zh-CN".
+  const to = TARGETS.has(toRaw) ? toRaw : (toRaw.split("-")[0] ?? "");
   const from = typeof body.from === "string" ? body.from.slice(0, 8) : "auto";
   if (!text || !TARGETS.has(to)) {
     return Response.json({ ok: false, error: "bad_request" }, { status: 400 });

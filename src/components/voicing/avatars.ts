@@ -1,24 +1,117 @@
 /**
- * Placeholder avatars. To use your own models later:
- *  1. put the .glb files in /public/avatars/
- *  2. set `glb: "/avatars/yourfile.glb"` on an entry below (or add a new entry).
- * The stage animates the mouth through a morph target named like jawOpen / mouthOpen / viseme_aa,
- * and falls back to a gentle scale pulse when the model has none.
+ * Voice-room characters. Each entry is built procedurally in AvatarStage
+ * (no external models needed): body outfit + head + hair + character pieces.
+ *
+ * `color` drives the outfit, `skin`/`hair` the head, `accent` the ring,
+ * particles and small details. `glb` stays reserved for future real models.
  */
 export interface AvatarDef {
   id: string;
   label: string;
+  /** Outfit color. */
   color: number;
+  /** Ring / particles / details. */
   accent: number;
-  shape: "robot" | "blob" | "cat" | "alien";
+  skin: number;
+  hair: number;
+  shape: "omar" | "khalid" | "yousef" | "saleh" | "luna" | "aria" | "nova" | "yara";
   glb?: string;
 }
 
 export const AVATARS: AvatarDef[] = [
-  { id: "robot", label: "Robot", color: 0x6f9fba, accent: 0xa9cfe5, shape: "robot" },
-  { id: "blob", label: "Blob", color: 0xf0a8b8, accent: 0xffd1dc, shape: "blob" },
-  { id: "cat", label: "Cat", color: 0xf2b866, accent: 0xffe0a8, shape: "cat" },
-  { id: "alien", label: "Alien", color: 0x7fd6a4, accent: 0xc4f5da, shape: "alien" },
+  // ---- The four boys -------------------------------------------------
+  {
+    id: "omar",
+    label: "عمر",
+    color: 0x3f9e6e,
+    accent: 0x9fd8b8,
+    skin: 0xe8b98a,
+    hair: 0x2b2118,
+    shape: "omar",
+  },
+  {
+    id: "khalid",
+    label: "خالد",
+    color: 0x2f6fb0,
+    accent: 0xa9c8ee,
+    skin: 0xc98e63,
+    hair: 0x14100c,
+    shape: "khalid",
+  },
+  {
+    id: "yousef",
+    label: "يوسف",
+    color: 0xe8843c,
+    accent: 0xffd9ae,
+    skin: 0xf0c8a0,
+    hair: 0x4a3220,
+    shape: "yousef",
+  },
+  {
+    id: "saleh",
+    label: "صالح",
+    color: 0xf5f2ea,
+    accent: 0xf0d9c0,
+    skin: 0xd9a06f,
+    hair: 0x1a1a1a,
+    shape: "saleh",
+  },
+  // ---- The four fantasy girls ---------------------------------------
+  {
+    id: "luna",
+    label: "لونا",
+    color: 0xa78bda,
+    accent: 0xd9c5ff,
+    skin: 0xf2cdb4,
+    hair: 0x9fe8d8,
+    shape: "luna",
+  },
+  {
+    id: "aria",
+    label: "آريا",
+    color: 0x3f7d4e,
+    accent: 0xbfe8c8,
+    skin: 0xefc9a8,
+    hair: 0x8a4b2a,
+    shape: "aria",
+  },
+  {
+    id: "nova",
+    label: "نوفا",
+    color: 0x4b3f9e,
+    accent: 0xffd166,
+    skin: 0xe8c39e,
+    hair: 0xd8d8e8,
+    shape: "nova",
+  },
+  {
+    id: "yara",
+    label: "يارا",
+    color: 0xe06a9c,
+    accent: 0xffc0d8,
+    skin: 0xf5d0b8,
+    hair: 0x6b4226,
+    shape: "yara",
+  },
 ];
 
 export const getAvatar = (id: string): AvatarDef => AVATARS.find((a) => a.id === id) ?? AVATARS[0]!;
+
+/** Reads the character chosen last time (kept across visits). */
+export function readSavedAvatar(): string {
+  try {
+    const saved = window.localStorage.getItem("cova-avatar");
+    if (saved && AVATARS.some((a) => a.id === saved)) return saved;
+  } catch {
+    /* storage unavailable */
+  }
+  return AVATARS[0]!.id;
+}
+
+export function saveAvatar(id: string): void {
+  try {
+    window.localStorage.setItem("cova-avatar", id);
+  } catch {
+    /* storage unavailable */
+  }
+}

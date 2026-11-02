@@ -127,13 +127,11 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
   return (
     <div>
       <div className="mb-3">
-        <DemoNotice>
-          Messages are delivered between accounts in real time. Sample students never reply.
-        </DemoNotice>
+        <DemoNotice>{t("messages.demoNotice")}</DemoNotice>
       </div>
       <div className="grid h-[calc(100vh-17rem)] min-h-[28rem] overflow-hidden rounded-xl border border-cova-line bg-white md:grid-cols-[18rem_1fr]">
         <section
-          aria-label="Conversations"
+          aria-label={t("messages.listAria")}
           className={cn(
             "flex min-h-0 flex-col border-cova-line md:border-e",
             selected && "hidden md:flex",
@@ -220,7 +218,7 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
                 </li>
               )}
               {visibleThreads.map((thread) => {
-                const name = thread.other?.displayName ?? "Unknown person";
+                const name = thread.other?.displayName ?? t("messages.unknown");
                 const active = thread.otherId === selected?.id;
                 return (
                   <li key={thread.otherId}>
@@ -260,7 +258,7 @@ export function MessagesClient({ initialTo }: { initialTo?: string }) {
         </section>
 
         <section
-          aria-label="Conversation"
+          aria-label={t("messages.threadAria")}
           className={cn("flex min-h-0 flex-col", !selected && "hidden md:flex")}
         >
           {selected ? (

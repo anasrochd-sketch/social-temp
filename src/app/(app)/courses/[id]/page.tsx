@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -8,6 +7,7 @@ import { CourseDetail } from "@/components/learning/CourseDetail";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { getSupabase } from "@/lib/supabase/client";
+import { useT } from "@/i18n/client";
 import type { Course, LessonType } from "@/types";
 
 type CourseRow = {
@@ -32,6 +32,7 @@ type LessonRow = {
 };
 
 export default function CoursePage() {
+  const t = useT();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params.id;
@@ -53,9 +54,7 @@ export default function CoursePage() {
 
         const { data: courseData, error: courseError } = await supabase
           .from("courses")
-          .select(
-            "id, title, description, level, category, instructor, tags",
-          )
+          .select("id, title, description, level, category, instructor, tags")
           .eq("id", id)
           .maybeSingle();
 
@@ -70,9 +69,7 @@ export default function CoursePage() {
 
         const { data: lessonData, error: lessonError } = await supabase
           .from("course_lessons")
-          .select(
-            "id, course_id, title, type, minutes, summary, content, position",
-          )
+          .select("id, course_id, title, type, minutes, summary, content, position")
           .eq("course_id", id)
           .order("position", { ascending: true });
 
@@ -104,9 +101,7 @@ export default function CoursePage() {
         console.error("Unable to load course:", error);
 
         if (active) {
-          setErrorMessage(
-            "Impossible de charger ce cours. Vérifie ta connexion et tes autorisations, puis réessaie.",
-          );
+          setErrorMessage(t("course.loadError"));
         }
       } finally {
         if (active) setLoading(false);
@@ -118,14 +113,13 @@ export default function CoursePage() {
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t is stable for this fetch
   }, [id]);
 
   if (loading) {
     return (
       <div className="rounded-xl border border-cova-line p-6">
-        <p className="text-sm text-cova-mute">
-          Chargement du cours...
-        </p>
+        <p className="text-sm text-cova-mute">Chargement du cours...</p>
       </div>
     );
   }
@@ -134,14 +128,11 @@ export default function CoursePage() {
     return (
       <EmptyState
         icon={SearchX}
-        title="Cours indisponible"
+        title={t("course.unavailableTitle")}
         description={errorMessage}
         action={
-          <Button
-            variant="secondary"
-            onClick={() => window.location.reload()}
-          >
-            Réessayer
+          <Button variant="secondary" onClick={() => window.location.reload()}>
+            {t("course.retry")}
           </Button>
         }
       />
@@ -152,8 +143,8 @@ export default function CoursePage() {
     return (
       <EmptyState
         icon={BookOpen}
-        title="Cours introuvable"
-        description="Ce cours a peut-être été supprimé ou tu n'as pas accès à son contenu."
+        title={t("course.notFoundTitle")}
+        description={t("course.notFoundDesc")}
         action={
           <Button
             variant="secondary"

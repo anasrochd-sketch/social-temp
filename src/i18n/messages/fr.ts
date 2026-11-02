@@ -1010,7 +1010,6 @@ export const fr: Record<MessageKey, string> = {
   "group.title": "Groupes",
   "group.subtitle": "Découvrez des groupes, créez-en un et discutez avec les membres.",
   "group.refresh": "Actualiser",
-  "group.create": "Créer un groupe",
   "group.signIn": "Connectez-vous pour voir et créer des groupes.",
   "group.loadError": "Impossible de charger les groupes. Vérifiez votre connexion et réessayez.",
   "group.nameLength": "Le nom du groupe doit contenir entre 3 et 60 caractères.",
@@ -1030,7 +1029,6 @@ export const fr: Record<MessageKey, string> = {
   "group.joinError":
     "Impossible de rejoindre ce groupe. Vérifiez le code d'invitation et réessayez.",
   "group.newGroup": "Créer un nouveau groupe",
-  "group.name": "Nom du groupe",
   "group.namePlaceholder": "ex. Apprenants d'anglais",
   "group.description": "Description",
   "group.descriptionPlaceholder": "De quoi parle ce groupe ?",
@@ -1067,4 +1065,99 @@ export const fr: Record<MessageKey, string> = {
   "groupDetail.notMember": "Pas membre",
   "groupDetail.postError":
     "Impossible de publier le message. Vérifiez votre adhésion et vos permissions.",
+
+  // Contrôle à distance (appels DM)
+  "call.peerSharing": "L'autre personne partage son écran",
+  "call.ctlAllow": "Autoriser le contrôle à distance",
+  "call.ctlDisallow": "Arrêter le contrôle à distance",
+  "call.ctlStop": "Arrêter",
+  "call.ctlActive": "Votre écran est contrôlé en ce moment",
+  "call.ctlYou": "Vous avez le contrôle",
+  "call.ctlRequest": "Demander le contrôle",
+  "call.ctlEnterCode": "Saisissez le code de contrôle affiché sur l'écran partagé",
+  "call.ctlVerify": "Vérifier",
+  "call.ctlDenied": "Le code est incorrect ou le contrôle a été refusé.",
+  "call.ctlRevoked": "Le contrôle à distance a été arrêté.",
+  "call.ctlNeedShare": "Le partage d'écran doit être activé pour le contrôle à distance.",
+  "call.ctlUnavailable": "Le canal de contrôle n'est pas prêt — réessayez dans une seconde.",
+  "call.ctlHint": "Le contrôle fonctionne dans la page de l'app : clic, défilement et touches.",
+
+  // Modale de création de groupe
+  "group.create": "Créer un groupe",
+  "group.createDesc": "Lancez un groupe d'étude ou de projet avec vos camarades.",
+  "group.name": "Nom du groupe",
+  "group.purpose": "À quoi sert ce groupe ?",
+  "group.nameShort": "Donnez un nom d'au moins 3 caractères à votre groupe.",
+  "group.descShort": "Décrivez le groupe en au moins 10 caractères.",
+  "group.demoNote":
+    "Démo uniquement : les nouveaux groupes sont validés mais non sauvegardés, faute de backend.",
+  "group.cat.general": "Général",
+  "group.cat.technology": "Technologie",
+
+  // Pages admin / réglages / notifications
+  "admin.title": "Admin",
+  "admin.desc": "Un aperçu général de la communauté.",
+  "admin.tabStudents": "Étudiants",
+  "admin.tabGroups": "Groupes",
+  "admin.tabCourses": "Cours",
+  "admin.tabReports": "Signalements ouverts",
+  "admin.search": "Rechercher un étudiant",
+  "settings.title": "Réglages",
+  "settings.desc": "Gérez votre profil, vos notifications et votre confidentialité.",
+  "notifications.title": "Notifications",
+  "notifications.desc": "Les nouveautés de vos cours, groupes et messages.",
+
+  // Restes de la page de cours
+  "course.unavailableTitle": "Cours indisponible",
+  "course.notFoundTitle": "Cours introuvable",
+  "course.notFoundDesc": "Ce cours a peut-être été supprimé ou tu n'as pas accès à son contenu.",
+  "course.progress": "Progression du cours",
+  "course.learning": "Qu'est-ce que les étudiants vont apprendre ou pratiquer ?",
+  "course.loading": "Chargement…",
+  "course.completed": "Terminé",
+  "course.notCompleted": "Non terminé",
+  "course.closeForm": "Fermer le formulaire",
+
+  // Recherche de personnes / vue de profil
+  "people.sample": "Exemple",
+  "people.yourId": "Votre ID",
+  "people.tooShort": "Saisissez au moins 2 caractères.",
+  "people.results": "Résultats de recherche",
+  "profile.about": "À propos",
+  "profile.skillsInterests": "Compétences et centres d'intérêt",
+  "profile.groups": "Groupes",
+  "profile.skills": "Compétences",
+  "profile.interests": "Intérêts",
+
+  // Restes de la page messages
+  "messages.demoNotice":
+    "Les messages sont délivrés entre comptes en temps réel. Les étudiants d'exemple ne répondent pas.",
+  "messages.unknown": "Personne inconnue",
+  "messages.listAria": "Conversations",
+  "messages.threadAria": "Conversation",
+
+  // Éléments partagés / accessibilité
+  "common.skip": "Aller au contenu",
+  "common.loading": "Chargement…",
+  "common.closeDialog": "Fermer la boîte de dialogue",
+  "common.closeNav": "Fermer la navigation",
+  "common.openNav": "Ouvrir la navigation",
+  "common.mainNav": "Navigation principale",
+  "community.requestsAria": "Demandes en attente d'approbation",
+  "admin.demoNote":
+    "Démo uniquement : pas de vérification de rôle ni de vraie modération ici. Une zone d'admin en production exige authentification, rôles et journal d'audit.",
+  "admin.noMatch": "Aucun étudiant ne correspond à votre recherche.",
+  "admin.studentBadge": "Étudiant",
+  "admin.noReports": "Aucun signalement ouvert.",
+  "admin.reportedBy": "Signalé par {name}",
+  "admin.markResolved": "Marquer résolu",
+  "admin.resolved": "Signalement marqué comme résolu",
+  "course.loadError":
+    "Impossible de charger ce cours. Vérifie ta connexion et tes autorisations, puis réessaie.",
+  "course.retry": "Réessayer",
+  "people.shareHint": "Partagez-le pour qu'on vous trouve. On peut aussi chercher {name}.",
+  "people.nobodyTitle": "Aucun résultat",
+  "people.nobodyDesc":
+    "Vérifiez l'orthographe, ou demandez-leur leur ID exact depuis la page Communauté.",
+  "messages.shareId": "Votre ID",
 };

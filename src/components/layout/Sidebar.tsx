@@ -31,7 +31,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         />
       )}
       <aside
-        aria-label="Main navigation"
+        aria-label={t("common.mainNav")}
         className={cn(
           "fixed inset-y-0 z-40 flex w-64 flex-col border-cova-line bg-white transition-transform lg:translate-x-0",
           dir === "rtl" ? "right-0 border-l border-r-0" : "left-0 border-r border-l-0",
@@ -43,7 +43,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close navigation"
+            aria-label={t("common.closeNav")}
             className="rounded-lg p-1.5 text-cova-mute hover:bg-cova-pale lg:hidden"
           >
             <X className="h-5 w-5" aria-hidden="true" />
@@ -52,7 +52,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <nav className="flex-1 overflow-y-auto px-3 pb-6">
           {navSections.map((section) => (
             <div key={section.titleKey} className="mt-5 first:mt-2">
-              <p className="px-3 pb-1.5 text-xs font-medium text-cova-mute">{t(section.titleKey)}</p>
+              <p className="px-3 pb-1.5 text-xs font-medium text-cova-mute">
+                {t(section.titleKey)}
+              </p>
               <ul className="space-y-0.5">
                 {section.items.map(({ href, labelKey, label, icon: Icon }, index) => {
                   const active = pathname === href || pathname.startsWith(`${href}/`);

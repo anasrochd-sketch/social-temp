@@ -328,11 +328,11 @@ export function GroupsBrowser({ initialJoinCode = "" }: { initialJoinCode?: stri
                 onChange={(event) => setCategory(event.target.value)}
                 className="w-full rounded-lg border border-cova-line px-3 py-2"
               >
-                <option value="General">General</option>
-                <option value="Languages">Languages</option>
-                <option value="Technology">Technology</option>
-                <option value="Study">Study</option>
-                <option value="Other">Other</option>
+                <option value="General">{t("group.cat.general")}</option>
+                <option value="Languages">{t("community.cat.languages")}</option>
+                <option value="Technology">{t("group.cat.technology")}</option>
+                <option value="Study">{t("community.cat.study")}</option>
+                <option value="Other">{t("community.cat.other")}</option>
               </select>
             </label>
 

@@ -1,16 +1,15 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { NotificationsList } from "@/components/learning/NotificationsList";
+import { getT } from "@/i18n/server";
 
 export const metadata: Metadata = { title: "Notifications" };
 
-export default function NotificationsPage() {
+export default async function NotificationsPage() {
+  const t = await getT();
   return (
     <>
-      <PageHeader
-        title="Notifications"
-        description="Updates about your courses, groups and messages."
-      />
+      <PageHeader title={t("notifications.title")} description={t("notifications.desc")} />
       <NotificationsList />
     </>
   );

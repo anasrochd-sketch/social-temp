@@ -36,6 +36,18 @@ export interface CallState {
   micOn: boolean;
   cameraOn: boolean;
   sharing: boolean;
+  /** The peer announced (over the data channel) that they are sharing a screen. */
+  peerSharing: boolean;
+  /** I share my screen AND let the peer control this page (code shown on screen). */
+  controlAllowed: boolean;
+  /** Verification code the peer must type to take control (host side). */
+  controlCode: string | null;
+  /** The peer is controlling my page right now (host side). */
+  controlled: boolean;
+  /** I control the peer's screen (viewer side). */
+  controlling: boolean;
+  /** I asked for control and am waiting for the code check (viewer side). */
+  controlRequested: boolean;
   /** Unix time when the call became connected; null until then (drives the duration timer). */
   connectedAt: number | null;
   /** i18n key describing the last problem or end reason; shown by the overlay. */
@@ -57,6 +69,12 @@ let state: CallState = {
   micOn: true,
   cameraOn: true,
   sharing: false,
+  peerSharing: false,
+  controlAllowed: false,
+  controlCode: null,
+  controlled: false,
+  controlling: false,
+  controlRequested: false,
   connectedAt: null,
   notice: null,
   localStream: null,
@@ -114,6 +132,9 @@ let localStream: MediaStream | null = null;
 let remoteStream: MediaStream | null = null;
 let screenTrack: MediaStreamTrack | null = null;
 let incomingOffer: RTCSessionDescriptionInit | null = null;
+
+/* Remote-control data channel (see wireCtl below). */
+let ctl: RTCDataChannel | null = null;
 
 let meUuid: string | null = null;
 let peerUuid: string | null = null;
@@ -227,6 +248,12 @@ async function handleSignal(row: SignalRow): Promise<void> {
       micOn: true,
       cameraOn: true,
       sharing: false,
+      peerSharing: false,
+      controlAllowed: false,
+      controlCode: null,
+      controlled: false,
+      controlling: false,
+      controlRequested: false,
       connectedAt: null,
       notice: null,
     });
@@ -282,13 +309,21 @@ async function handleSignal(row: SignalRow): Promise<void> {
   }
 }
 
-function createPeerConnection(): RTCPeerConnection {
+function createPeerConnection(role: "caller" | "callee"): RTCPeerConnection {
   const connection = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
   if (localStream) {
     for (const track of localStream.getTracks()) {
       connection.addTrack(track, localStream);
     }
+  }
+
+  // Control channel rides on the main connection (no renegotiation needed:
+  // the caller creates it before the offer, so it is in the first SDP).
+  if (role === "caller") {
+    wireCtl(connection.createDataChannel("cova-ctl"));
+  } else {
+    connection.ondatachannel = (event) => wireCtl(event.channel);
   }
 
   connection.onicecandidate = (event) => {
@@ -305,6 +340,162 @@ function createPeerConnection(): RTCPeerConnection {
   };
 
   return connection;
+}
+
+/* ------------------------------------------------- remote control channel */
+
+interface CtlMsg {
+  t: string;
+  [key: string]: unknown;
+}
+
+function ctlSend(msg: CtlMsg): void {
+  if (ctl && ctl.readyState === "open") {
+    try {
+      ctl.send(JSON.stringify(msg));
+    } catch {
+      /* channel closing */
+    }
+  }
+}
+
+function wireCtl(ch: RTCDataChannel): void {
+  ctl = ch;
+  ch.onmessage = (event) => {
+    try {
+      handleCtlMessage(JSON.parse(String(event.data)) as CtlMsg);
+    } catch {
+      /* malformed message */
+    }
+  };
+  ch.onclose = () => {
+    ctl = null;
+    if (state.controlling || state.controlled || state.controlRequested || state.controlAllowed) {
+      patch({
+        controlling: false,
+        controlled: false,
+        controlRequested: false,
+        controlAllowed: false,
+        controlCode: null,
+      });
+    }
+  };
+}
+
+function handleCtlMessage(msg: CtlMsg): void {
+  switch (msg.t) {
+    case "share": {
+      // Peer started/stopped sharing. Stopping always kills control.
+      const on = msg.on === true;
+      const next: Partial<CallState> = { peerSharing: on };
+      if (!on && (state.controlling || state.controlRequested)) {
+        next.controlling = false;
+        next.controlRequested = false;
+        next.notice = state.controlling ? "call.ctlRevoked" : state.notice;
+      }
+      patch(next);
+      return;
+    }
+    case "ctl-verify": {
+      // I am the host: does the typed code match the one on my screen?
+      if (!state.controlAllowed || !state.controlCode) {
+        ctlSend({ t: "ctl-deny" });
+        return;
+      }
+      if (String(msg.code ?? "") === state.controlCode) {
+        ctlSend({ t: "ctl-grant" });
+        patch({ controlled: true });
+      } else {
+        ctlSend({ t: "ctl-deny" });
+      }
+      return;
+    }
+    case "ctl-grant": {
+      patch({ controlling: true, controlRequested: false, notice: null });
+      return;
+    }
+    case "ctl-deny": {
+      patch({ controlRequested: false, notice: "call.ctlDenied" });
+      return;
+    }
+    case "ctl-revoke": {
+      if (state.controlling) {
+        patch({ controlling: false, notice: "call.ctlRevoked" });
+      } else {
+        patch({ controlling: false, controlRequested: false });
+      }
+      return;
+    }
+    // Input events from the controlling peer — only accepted while controlled.
+    case "pt":
+      if (state.controlled) injectPointer("move", Number(msg.x), Number(msg.y));
+      return;
+    case "pd":
+      if (state.controlled) injectPointer("down", Number(msg.x), Number(msg.y));
+      return;
+    case "pu":
+      if (state.controlled) injectPointer("up", Number(msg.x), Number(msg.y));
+      return;
+    case "wh":
+      if (state.controlled)
+        injectWheel(Number(msg.x), Number(msg.y), Number(msg.dx), Number(msg.dy));
+      return;
+    case "kd":
+      if (state.controlled) injectKey("keydown", String(msg.key ?? ""));
+      return;
+    case "ku":
+      if (state.controlled) injectKey("keyup", String(msg.key ?? ""));
+      return;
+    default:
+      return;
+  }
+}
+
+/* Synthetic input on the controlled (host) side. Works inside this page —
+ * browsers do not let a page drive the OS outside its own document. */
+function injectPointer(type: "move" | "down" | "up", x: number, y: number): void {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return;
+  const el = document.elementFromPoint(x, y);
+  if (!el) return;
+  const init: MouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    button: 0,
+    buttons: type === "down" ? 1 : 0,
+  };
+  if (type === "move") {
+    el.dispatchEvent(new MouseEvent("mousemove", init));
+    return;
+  }
+  el.dispatchEvent(new MouseEvent(type === "down" ? "mousedown" : "mouseup", init));
+  if (type === "up") el.dispatchEvent(new MouseEvent("click", init));
+}
+
+function injectWheel(x: number, y: number, dx: number, dy: number): void {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return;
+  el.dispatchEvent(
+    new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: x,
+      clientY: y,
+      deltaX: dx,
+      deltaY: dy,
+      deltaMode: 0,
+    }),
+  );
+}
+
+function injectKey(type: "keydown" | "keyup", key: string): void {
+  if (!key || key.length > 32) return;
+  const target = document.activeElement ?? document.body;
+  target.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true, cancelable: true }));
 }
 
 async function getMedia(kind: CallKind): Promise<MediaStream> {
@@ -337,6 +528,12 @@ function endCall(notice?: string | null): void {
   peerUuid = null;
   pendingCandidates = [];
   remoteDescriptionSet = false;
+  try {
+    ctl?.close();
+  } catch {
+    // Already closed.
+  }
+  ctl = null;
 
   patch({
     phase: "idle",
@@ -344,6 +541,12 @@ function endCall(notice?: string | null): void {
     micOn: true,
     cameraOn: true,
     sharing: false,
+    peerSharing: false,
+    controlAllowed: false,
+    controlCode: null,
+    controlled: false,
+    controlling: false,
+    controlRequested: false,
     connectedAt: null,
     notice: notice ?? null,
     localStream: null,
@@ -388,7 +591,7 @@ async function startCall(peer: CallPeer, kind: CallKind): Promise<void> {
   patch({ localStream, micOn: true, cameraOn: kind === "video" });
 
   try {
-    pc = createPeerConnection();
+    pc = createPeerConnection("caller");
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await sendSignal("offer", { sdp: offer, call: kind });
@@ -422,7 +625,7 @@ async function acceptCall(): Promise<void> {
   patch({ localStream, micOn: true, cameraOn: kind === "video" });
 
   try {
-    pc = createPeerConnection();
+    pc = createPeerConnection("callee");
     await pc.setRemoteDescription(offer);
     remoteDescriptionSet = true;
     const answer = await pc.createAnswer();
@@ -483,6 +686,7 @@ async function toggleShare(): Promise<void> {
     await videoSender.replaceTrack(screenTrack);
     screenTrack.onended = () => stopSharing();
     patch({ sharing: true });
+    ctlSend({ t: "share", on: true });
   } catch {
     patch({ notice: "call.shareDenied" });
   }
@@ -496,6 +700,55 @@ function stopSharing(): void {
   screenTrack?.stop();
   screenTrack = null;
   patch({ sharing: false });
+  ctlSend({ t: "share", on: false });
+  // Sharing stopped -> control must stop with it.
+  if (state.controlAllowed) disableControl();
+  if (state.controlling) {
+    patch({ controlling: false, notice: "call.ctlRevoked" });
+    ctlSend({ t: "ctl-revoke" });
+  }
+}
+
+/* --------------------------------------------------- remote control actions */
+
+/** Host: show the verification code on the shared screen and allow control. */
+function enableControl(): void {
+  if (!state.sharing) {
+    patch({ notice: "call.ctlNeedShare" });
+    return;
+  }
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  patch({ controlAllowed: true, controlCode: code });
+}
+
+/** Host: stop allowing control and kick the peer out if they were in. */
+function disableControl(): void {
+  if (state.controlled || state.controlAllowed) ctlSend({ t: "ctl-revoke" });
+  patch({ controlAllowed: false, controlCode: null, controlled: false });
+}
+
+/** Viewer: ask to control; the host verifies the code shown on their screen. */
+function requestControl(): void {
+  if (ctl?.readyState !== "open") {
+    patch({ notice: "call.ctlUnavailable" });
+    return;
+  }
+  if (!state.peerSharing) {
+    patch({ notice: "call.ctlNeedShare" });
+    return;
+  }
+  ctlSend({ t: "ctl-req" });
+  patch({ controlRequested: true, notice: null });
+}
+
+function submitControlCode(code: string): void {
+  const clean = code.replace(/\D/g, "").slice(0, 6);
+  if (clean.length !== 6) return;
+  ctlSend({ t: "ctl-verify", code: clean });
+}
+
+function cancelControlRequest(): void {
+  patch({ controlRequested: false });
 }
 
 function clearNotice(): void {
@@ -510,10 +763,24 @@ export const callActions = {
   toggleMic,
   toggleCamera,
   toggleShare,
+  enableControl,
+  disableControl,
+  requestControl,
+  submitControlCode,
+  cancelControlRequest,
   clearNotice,
 };
 
 /* --------------------------------------------------------------------- hooks */
+
+/** Viewer-side senders for remote-control input (no-ops if the channel is closed). */
+export const controlSenders = {
+  pointer: (x: number, y: number) => ctlSend({ t: "pt", x, y }),
+  down: (x: number, y: number) => ctlSend({ t: "pd", x, y }),
+  up: (x: number, y: number) => ctlSend({ t: "pu", x, y }),
+  wheel: (x: number, y: number, dx: number, dy: number) => ctlSend({ t: "wh", x, y, dx, dy }),
+  key: (kind: "kd" | "ku", key: string) => ctlSend({ t: kind, key }),
+};
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);

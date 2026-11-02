@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button, buttonStyles } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
+import { useT } from "@/i18n/client";
 import { groups } from "@/data/groups";
 import { levelFor } from "@/lib/progress";
 import { relationStatus, socialActions, useMe, useSocial } from "@/lib/social-store";
@@ -22,6 +23,7 @@ import type { Student } from "@/types";
 
 export function ProfileView({ student }: { student: Student }) {
   const toast = useToast();
+  const t = useT();
   const me = useMe();
   const social = useSocial();
   const relation = me ? relationStatus(social, me.id, student.id) : "none";
@@ -113,16 +115,16 @@ export function ProfileView({ student }: { student: Student }) {
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card>
-            <CardHeader title="About" />
+            <CardHeader title={t("profile.about")} />
             <CardBody>
               <p className="text-sm leading-relaxed">{student.bio}</p>
             </CardBody>
           </Card>
           <Card>
-            <CardHeader title="Skills and interests" />
+            <CardHeader title={t("profile.skillsInterests")} />
             <CardBody className="space-y-4">
               <div>
-                <p className="mb-2 text-xs font-medium text-cova-mute">Skills</p>
+                <p className="mb-2 text-xs font-medium text-cova-mute">{t("profile.skills")}</p>
                 <ul className="flex flex-wrap gap-1.5">
                   {student.skills.map((s) => (
                     <li key={s}>
@@ -132,7 +134,7 @@ export function ProfileView({ student }: { student: Student }) {
                 </ul>
               </div>
               <div>
-                <p className="mb-2 text-xs font-medium text-cova-mute">Interests</p>
+                <p className="mb-2 text-xs font-medium text-cova-mute">{t("profile.interests")}</p>
                 <ul className="flex flex-wrap gap-1.5">
                   {student.interests.map((s) => (
                     <li key={s}>
@@ -144,7 +146,7 @@ export function ProfileView({ student }: { student: Student }) {
             </CardBody>
           </Card>
           <Card>
-            <CardHeader title="Groups" />
+            <CardHeader title={t("profile.groups")} />
             <CardBody>
               {memberOf.length === 0 ? (
                 <p className="text-sm text-cova-mute">

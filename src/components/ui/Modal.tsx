@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useT } from "@/i18n/client";
 
 interface ModalProps {
   open: boolean;
@@ -13,6 +14,7 @@ interface ModalProps {
 
 /** Accessible modal built on the native <dialog> element (focus trap, Escape to close). */
 export function Modal({ open, onClose, title, description, children }: ModalProps) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -44,7 +46,7 @@ export function Modal({ open, onClose, title, description, children }: ModalProp
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close dialog"
+              aria-label={t("common.closeDialog")}
               className="rounded-lg p-1.5 text-cova-mute hover:bg-cova-pale hover:text-cova-ink"
             >
               <X className="h-5 w-5" aria-hidden="true" />

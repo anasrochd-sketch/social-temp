@@ -107,6 +107,20 @@ const en = {
   "cap.unsupported": "This browser cannot transcribe speech. Try Chrome or Edge.",
   "cap.denied": "Microphone access is blocked — allow it to transcribe.",
   "cap.you": "You",
+  "cap.forMe": "Translate for me",
+  "cap.interfaceLang": "Interface language",
+  "cap.voiceOut": "Dub my voice into",
+  "cap.voiceOutOff": "Off",
+  "cap.listen": "Listen to this line",
+  "room.qr": "QR",
+  "room.options": "Options",
+  "room.backToRoom": "Back to room",
+  "room.mutedFlag": "Muted",
+  "room.anotherOpen": "You are already in another room",
+  "room.anotherHint":
+    "Leave the current room to join this one — your microphone can only be in one place.",
+  "room.switchRoom": "Leave and switch",
+  "room.guestName": "Guest",
 } as const;
 export type SKey = keyof typeof en;
 
@@ -215,6 +229,20 @@ const fr: Record<SKey, string> = {
   "cap.unsupported": "Ce navigateur ne peut pas transcrire la voix. Essayez Chrome ou Edge.",
   "cap.denied": "Accès au micro refusé — autorisez-le pour transcrire.",
   "cap.you": "Vous",
+  "cap.forMe": "Traduire pour moi",
+  "cap.interfaceLang": "Langue de l'interface",
+  "cap.voiceOut": "Doubler ma voix en",
+  "cap.voiceOutOff": "Désactivé",
+  "cap.listen": "Écouter cette ligne",
+  "room.qr": "QR",
+  "room.options": "Options",
+  "room.backToRoom": "Retour à la salle",
+  "room.mutedFlag": "Muet",
+  "room.anotherOpen": "Vous êtes déjà dans une autre salle",
+  "room.anotherHint":
+    "Quittez la salle actuelle pour rejoindre celle-ci — votre micro ne peut être qu'à un seul endroit.",
+  "room.switchRoom": "Quitter et changer",
+  "room.guestName": "Invité",
 };
 
 const ar: Record<SKey, string> = {
@@ -319,6 +347,19 @@ const ar: Record<SKey, string> = {
   "cap.unsupported": "متصفحك لا يدعم التعرف على الكلام. جرّب Chrome أو Edge.",
   "cap.denied": "تم حجب الميكروفون — اسمح بالوصول لتفعيل الترجمة.",
   "cap.you": "أنت",
+  "cap.forMe": "ترجم لي",
+  "cap.interfaceLang": "لغة الواجهة",
+  "cap.voiceOut": "دبلجة صوتي إلى",
+  "cap.voiceOutOff": "بدون",
+  "cap.listen": "استمع لهذا السطر",
+  "room.qr": "رمز QR",
+  "room.options": "خيارات",
+  "room.backToRoom": "الرجوع للغرفة",
+  "room.mutedFlag": "بالكتم",
+  "room.anotherOpen": "أنت في غرفة أخرى حالياً",
+  "room.anotherHint": "غادر الغرفة الحالية للانضمام لهذه — الميكروفون لا يكون إلا في مكان واحد.",
+  "room.switchRoom": "غادر وانتقل",
+  "room.guestName": "زائر",
 };
 
 const catalogs: Record<Locale, Record<SKey, string>> = { en, fr, ar };

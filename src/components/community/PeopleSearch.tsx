@@ -19,6 +19,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { useToast } from "@/components/ui/Toast";
+import { useT } from "@/i18n/client";
 import { getStudent } from "@/data/students";
 import { copyText } from "@/lib/clipboard";
 import {
@@ -33,6 +34,7 @@ import {
 import type { SocialUser } from "@/types/social";
 
 function PersonName({ user }: { user: SocialUser }) {
+  const t = useT();
   const hasProfile = !!getStudent(user.id);
   return (
     <div className="min-w-0">
@@ -48,7 +50,7 @@ function PersonName({ user }: { user: SocialUser }) {
       )}
       <p className="flex flex-wrap items-center gap-x-2 text-xs text-cova-mute">
         <span className="font-mono">{user.id}</span>
-        {user.sample && <Badge tone="outline">Sample</Badge>}
+        {user.sample && <Badge tone="outline">{t("people.sample")}</Badge>}
       </p>
       {user.headline && <p className="line-clamp-1 text-xs text-cova-mute">{user.headline}</p>}
     </div>
@@ -158,6 +160,7 @@ function PeopleList({ title, users, meId }: { title: string; users: SocialUser[]
 
 export function PeopleHub({ me }: { me: SocialUser }) {
   const toast = useToast();
+  const t = useT();
   const social = useSocial();
   const [query, setQuery] = useState("");
 
@@ -179,10 +182,10 @@ export function PeopleHub({ me }: { me: SocialUser }) {
       <Card>
         <CardBody className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium">Your ID</p>
+            <p className="text-sm font-medium">{t("messages.shareId")}</p>
             <p className="font-mono text-lg font-semibold">{me.id}</p>
             <p className="text-xs text-cova-mute">
-              Share it so people can find you. They can also search for {me.displayName}.
+              {t("people.shareHint", { name: me.displayName })}
             </p>
           </div>
           <Button
@@ -210,16 +213,16 @@ export function PeopleHub({ me }: { me: SocialUser }) {
 
       {searching ? (
         query.trim().replace(/^@/, "").length < 2 ? (
-          <p className="text-sm text-cova-mute">Type at least 2 characters.</p>
+          <p className="text-sm text-cova-mute">{t("people.tooShort")}</p>
         ) : results.length === 0 ? (
           <EmptyState
             icon={SearchX}
-            title="Nobody found"
-            description="Check the spelling, or ask them for their exact ID from the Community page."
+            title={t("people.nobodyTitle")}
+            description={t("people.nobodyDesc")}
           />
         ) : (
           <Card>
-            <ul className="divide-y divide-cova-line" aria-label="Search results">
+            <ul className="divide-y divide-cova-line" aria-label={t("people.results")}>
               {results.map((u) => (
                 <PersonRow key={u.id} user={u} meId={me.id} />
               ))}

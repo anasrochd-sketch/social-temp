@@ -10,6 +10,7 @@ import { DemoNotice } from "@/components/ui/DemoNotice";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { useToast } from "@/components/ui/Toast";
 import { StatCard } from "@/components/dashboard/StatCard";
+import { useT } from "@/i18n/client";
 import { courses } from "@/data/courses";
 import { groups } from "@/data/groups";
 import { students } from "@/data/students";
@@ -21,6 +22,7 @@ const reports = [
 ];
 
 export function AdminDashboard() {
+  const t = useT();
   const toast = useToast();
   const [query, setQuery] = useState("");
   const [resolved, setResolved] = useState<string[]>([]);
@@ -29,25 +31,22 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <DemoNotice>
-        Demo only: there is no role check or real moderation here. A production admin area needs
-        authentication, role-based access and an audit log.
-      </DemoNotice>
+      <DemoNotice>{t("admin.demoNote")}</DemoNotice>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Users} label="Students" value={String(students.length)} />
-        <StatCard icon={UserCheck} label="Groups" value={String(groups.length)} />
-        <StatCard icon={BookOpen} label="Courses" value={String(courses.length)} />
-        <StatCard icon={ShieldCheck} label="Open reports" value={String(open.length)} />
+        <StatCard icon={Users} label={t("admin.tabStudents")} value={String(students.length)} />
+        <StatCard icon={UserCheck} label={t("admin.tabGroups")} value={String(groups.length)} />
+        <StatCard icon={BookOpen} label={t("admin.tabCourses")} value={String(courses.length)} />
+        <StatCard icon={ShieldCheck} label={t("admin.tabReports")} value={String(open.length)} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader
-            title="Students"
+            title={t("admin.tabStudents")}
             action={
               <SearchInput
-                label="Search students"
-                placeholder="Search students"
+                label={t("admin.search")}
+                placeholder={t("admin.search")}
                 value={query}
                 onChange={setQuery}
                 className="w-56"
@@ -56,7 +55,7 @@ export function AdminDashboard() {
           />
           <CardBody>
             {people.length === 0 ? (
-              <p className="text-sm text-cova-mute">No students match your search.</p>
+              <p className="text-sm text-cova-mute">{t("admin.noMatch")}</p>
             ) : (
               <ul className="divide-y divide-cova-line">
                 {people.map((s) => (
@@ -71,7 +70,7 @@ export function AdminDashboard() {
                         <span className="block truncate text-xs text-cova-mute">{s.school}</span>
                       </span>
                     </span>
-                    <Badge tone="outline">Student</Badge>
+                    <Badge tone="outline">{t("admin.studentBadge")}</Badge>
                   </li>
                 ))}
               </ul>
@@ -80,26 +79,28 @@ export function AdminDashboard() {
         </Card>
 
         <Card>
-          <CardHeader title="Reports" />
+          <CardHeader title={t("admin.tabReports")} />
           <CardBody>
             {open.length === 0 ? (
-              <p className="text-sm text-cova-mute">No open reports.</p>
+              <p className="text-sm text-cova-mute">{t("admin.noReports")}</p>
             ) : (
               <ul className="space-y-4">
                 {open.map((r) => (
                   <li key={r.id}>
                     <p className="text-sm font-medium">{r.subject}</p>
-                    <p className="text-xs text-cova-mute">Reported by {r.reporter}</p>
+                    <p className="text-xs text-cova-mute">
+                      {t("admin.reportedBy", { name: r.reporter })}
+                    </p>
                     <Button
                       size="sm"
                       variant="secondary"
                       className="mt-2"
                       onClick={() => {
                         setResolved((x) => [...x, r.id]);
-                        toast.push("Report marked as resolved");
+                        toast.push(t("admin.resolved"));
                       }}
                     >
-                      Mark resolved
+                      {t("admin.markResolved")}
                     </Button>
                   </li>
                 ))}

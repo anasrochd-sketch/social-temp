@@ -42,6 +42,10 @@ export interface Caption {
   /** Speech language of the speaker, e.g. "en-US". */
   lang: string;
   text: string;
+  /** Optional pre-translated line the speaker chose to dub with TTS. */
+  tt?: string;
+  /** BCP-47 tag of `tt`, so listeners can read and speak it back. */
+  tlang?: string;
   at: number;
 }
 interface Space {
@@ -218,6 +222,10 @@ export interface ActionInput {
   muted?: boolean;
   text?: string;
   lang?: string;
+  /** Pre-translated caption line (speaker dubbing). */
+  tt?: string;
+  /** BCP-47 tag of `tt`. */
+  tlang?: string;
   to?: string;
   payload?: unknown;
 }
@@ -365,6 +373,8 @@ export function act(
         name: me.name,
         lang: clean(a.lang, 12) || "unknown",
         text,
+        tt: clean(a.tt, 300) || undefined,
+        tlang: clean(a.tlang, 12) || undefined,
         at: Date.now(),
       };
       s.captions.push(caption);

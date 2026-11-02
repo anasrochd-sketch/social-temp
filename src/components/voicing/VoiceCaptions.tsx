@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Languages, Mic, MicOff } from "lucide-react";
+import { Languages, Mic, MicOff, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { useI18n } from "@/i18n/client";
 import { useS } from "@/i18n/spaces";
-import { LOCALE_DIR, type Locale } from "@/i18n/config";
+import type { Locale } from "@/i18n/config";
+import { LANGS, findLang, speakText } from "@/lib/langs";
 import type { Caption } from "@/server/spaces-store";
 
 type Send = (body: Record<string, unknown>) => Promise<unknown>;
@@ -48,12 +49,33 @@ const SPEECH_LANG: Record<Locale, string> = {
 };
 
 const shortLang = (lang: string) => (lang.split("-")[0] || "?").toUpperCase();
-const isRtlLang = (lang: string) => lang.toLowerCase().startsWith("ar");
+const dirOf = (lang: string) => {
+  const base = (lang.split("-")[0] ?? "").toLowerCase();
+  return base === "ar" || base === "ur" || base === "fa" || base === "he" ? "rtl" : "ltr";
+};
+
+async function translate(text: string, to: string, from: string): Promise<string | null> {
+  try {
+    const res = await fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, to, from }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; translated?: string };
+    return data.ok && data.translated ? data.translated : null;
+  } catch {
+    return null; // offline / rate limited: the original text stays visible
+  }
+}
 
 /**
- * Live captions for voice rooms: your speech is transcribed by the browser,
- * relayed through the room, and every participant reads each line translated
- * into the interface language they picked. Best in Chrome / Edge.
+ * Live captions + translation for voice rooms.
+ *
+ * - Everyone: picks a "translate for me" language (30 available) and reads every
+ *   line in it; the 🔊 button reads a line aloud.
+ * - Speaker: optionally picks a "voice-out" language — every spoken line is then
+ *   machine-translated, dubbed with TTS and shared pre-translated with the room.
+ * Best in Chrome / Edge (speech recognition is a browser engine feature).
  */
 export function VoiceCaptions({
   captions,
@@ -69,6 +91,11 @@ export function VoiceCaptions({
 
   const [listening, setListening] = useState(false);
   const [notice, setNotice] = useState("");
+  /** "Translate for me" target (translation code, "" = my interface language). */
+  const [target, setTarget] = useState("");
+  /** Speaker voice-out language (translation code, "" = off). */
+  const [voiceOut, setVoiceOut] = useState("");
+  /** `${captionId}:${target}` -> translated text. */
   const [translated, setTranslated] = useState<Record<string, string>>({});
 
   const recRef = useRef<SpeechRecognitionLike | null>(null);
@@ -76,11 +103,18 @@ export function VoiceCaptions({
   const lastSentRef = useRef({ text: "", at: 0 });
   const requestedRef = useRef(new Set<string>());
   const listRef = useRef<HTMLDivElement | null>(null);
+  const voiceOutRef = useRef(voiceOut);
+  useEffect(() => {
+    voiceOutRef.current = voiceOut;
+  }, [voiceOut]);
+  const localeTag = SPEECH_LANG[locale];
 
   const supported =
     typeof window !== "undefined" &&
-    !!((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition);
+    !!(
+      (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
+    );
 
   const pushCaption = useCallback(
     (text: string) => {
@@ -91,9 +125,27 @@ export function VoiceCaptions({
       if (clean === last.text && now - last.at < 4000) return; // recognition repeats itself
       if (now - last.at < 600) return; // throttle bursts
       lastSentRef.current = { text: clean, at: now };
-      void send({ type: "caption", text: clean, lang: SPEECH_LANG[locale] });
+
+      const out = voiceOutRef.current;
+      if (out) {
+        // Speaker dubbing: translate, speak it here, share the translation.
+        void (async () => {
+          const tt = await translate(clean, out, "auto");
+          const lang = findLang(out)?.tag ?? out;
+          if (tt) speakText(tt, lang);
+          void send({
+            type: "caption",
+            text: clean,
+            lang: localeTag,
+            tt: tt ?? undefined,
+            tlang: tt ? lang : undefined,
+          });
+        })();
+      } else {
+        void send({ type: "caption", text: clean, lang: localeTag });
+      }
     },
-    [send, locale],
+    [send, localeTag],
   );
 
   const stop = useCallback(() => {
@@ -105,17 +157,17 @@ export function VoiceCaptions({
 
   const start = useCallback(() => {
     const Ctor =
-      ((window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike })
+      (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike })
         .SpeechRecognition ??
       (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike })
-        .webkitSpeechRecognition);
+        .webkitSpeechRecognition;
     if (!Ctor) {
       setNotice(t("cap.unsupported"));
       return;
     }
     setNotice("");
     const rec = new Ctor();
-    rec.lang = SPEECH_LANG[locale];
+    rec.lang = localeTag;
     rec.continuous = true;
     rec.interimResults = false;
 
@@ -151,42 +203,39 @@ export function VoiceCaptions({
     } catch {
       /* start called twice */
     }
-  }, [locale, pushCaption, t]);
+  }, [localeTag, pushCaption, t]);
 
   useEffect(() => () => stop(), [stop]);
 
-  // Translate new lines from other people into my interface language.
+  // "Translate for me" target (a translation code).
+  const targetCode = target || locale;
+  const targetTag = findLang(targetCode)?.tag ?? localeTag;
+
+  // Translate new lines from other people into my chosen target language.
   useEffect(() => {
     for (const c of captions) {
-      if (c.uid === meUid || requestedRef.current.has(c.id)) continue;
+      if (c.uid === meUid) continue;
+      // A dub that already arrives in my language needs no request.
+      if (c.tt && (findLang(c.tlang ?? "")?.code ?? "") === targetCode) continue;
+      const key = `${c.id}:${targetCode}`;
+      if (requestedRef.current.has(key)) continue;
       const spoken = (c.lang.split("-")[0] || "").toLowerCase();
-      if (spoken === locale) continue; // already my language
-      requestedRef.current.add(c.id);
+      if (spoken === targetCode) continue; // already my language
+      requestedRef.current.add(key);
       void (async () => {
-        try {
-          const res = await fetch("/api/translate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: c.text, to: locale, from: spoken || "auto" }),
-          });
-          const data = (await res.json().catch(() => ({}))) as {
-            ok?: boolean;
-            translated?: string;
-          };
-          if (data.ok && data.translated) {
-            setTranslated((prev) => ({ ...prev, [c.id]: data.translated! }));
-          }
-        } catch {
-          /* offline / rate limited: the original text stays visible */
-        }
+        const out = await translate(c.text, targetCode, spoken || "auto");
+        if (out) setTranslated((prev) => ({ ...prev, [key]: out }));
       })();
     }
-  }, [captions, locale, meUid]);
+  }, [captions, targetCode, meUid]);
 
   // Keep the newest line in view.
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [captions.length, translated]);
+
+  const selectCls =
+    "mt-1 h-9 w-full rounded-lg border border-cova-line bg-white px-2 text-xs font-medium";
 
   return (
     <Card>
@@ -195,7 +244,39 @@ export function VoiceCaptions({
           <Languages className="h-4 w-4" aria-hidden="true" />
           {t("cap.title")}
         </h3>
-        <p className="text-xs text-cova-mute">{t("cap.hint")}</p>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="block text-xs font-medium text-cova-mute">
+            {t("cap.forMe")}
+            <select
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">{t("cap.interfaceLang")}</option>
+              {LANGS.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-cova-mute">
+            {t("cap.voiceOut")}
+            <select
+              value={voiceOut}
+              onChange={(e) => setVoiceOut(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">{t("cap.voiceOutOff")}</option>
+              {LANGS.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <Button
           size="sm"
@@ -229,32 +310,43 @@ export function VoiceCaptions({
           ) : (
             captions.map((c) => {
               const mine = c.uid === meUid;
-              const trans = mine ? undefined : translated[c.id];
-              const spokenDir = isRtlLang(c.lang) ? "rtl" : "ltr";
+              const dubMatchesMe = !!c.tt && (findLang(c.tlang ?? "")?.code ?? "") === targetCode;
+              const trans = mine
+                ? (c.tt ?? undefined)
+                : dubMatchesMe
+                  ? c.tt!
+                  : translated[`${c.id}:${targetCode}`];
+
+              // Main line: my own words, or the best translation available.
+              const mainText = mine ? c.text : (trans ?? c.text);
+              const mainLang = mine ? c.lang : trans ? targetTag : (c.tlang ?? c.lang);
+              const sub = mine ? (c.tt ? c.tt : null) : trans ? c.text : null;
+              const subLang = mine ? (c.tlang ?? c.lang) : c.lang;
+
+              const speak = () => speakText(trans ?? c.text, mainLang);
+
               return (
                 <div key={c.id} className="rounded-lg bg-cova-bg px-2.5 py-2">
                   <p className="flex items-center gap-1.5 text-[11px] text-cova-mute">
-                    <span className="truncate font-medium">
-                      {mine ? t("cap.you") : c.name}
-                    </span>
+                    <span className="truncate font-medium">{mine ? t("cap.you") : c.name}</span>
                     <span className="shrink-0 rounded bg-cova-pale px-1 font-mono text-[10px]">
-                      {shortLang(c.lang)}
+                      {shortLang(mainLang)}
                     </span>
+                    <button
+                      type="button"
+                      onClick={speak}
+                      aria-label={t("cap.listen")}
+                      className="ms-auto rounded p-0.5 hover:bg-cova-pale"
+                    >
+                      <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                   </p>
-                  {trans !== undefined && (
-                    <p className="mt-0.5 text-sm font-medium" dir={LOCALE_DIR[locale]}>
-                      {trans}
-                    </p>
-                  )}
-                  {trans === undefined && !mine && (
-                    <p className="mt-0.5 text-sm" dir={spokenDir}>
-                      {c.text}
-                    </p>
-                  )}
-                  {mine && <p className="mt-0.5 text-sm" dir={spokenDir}>{c.text}</p>}
-                  {trans !== undefined && (
-                    <p className="mt-0.5 text-[11px] text-cova-mute" dir={spokenDir}>
-                      {c.text}
+                  <p className="mt-0.5 text-sm" dir={dirOf(mainLang)}>
+                    {mainText}
+                  </p>
+                  {sub !== null && (
+                    <p className="mt-0.5 text-[11px] text-cova-mute" dir={dirOf(subLang)}>
+                      {mine ? `🎙 ${sub}` : sub}
                     </p>
                   )}
                 </div>

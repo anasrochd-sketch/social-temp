@@ -6,9 +6,16 @@ export function Skeleton({ className }: { className?: string }) {
   );
 }
 
-export function CardGridSkeleton({ count = 6 }: { count?: number }) {
+export function CardGridSkeleton({
+  count = 6,
+  label = "Loading",
+}: {
+  count?: number;
+  /** Accessible name; pass a translated string when available. */
+  label?: string;
+}) {
   return (
-    <div role="status" aria-label="Loading" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div role="status" aria-label={label} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="space-y-3 rounded-xl border border-cova-line bg-white p-5">
           <Skeleton className="h-10 w-10 rounded-full" />

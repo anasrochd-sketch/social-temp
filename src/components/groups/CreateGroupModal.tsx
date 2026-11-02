@@ -6,6 +6,7 @@ import { DemoNotice } from "@/components/ui/DemoNotice";
 import { TextAreaField, TextField } from "@/components/ui/FormField";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { useT } from "@/i18n/client";
 
 interface CreateGroupModalProps {
   open: boolean;
@@ -13,6 +14,7 @@ interface CreateGroupModalProps {
 }
 
 export function CreateGroupModal({ open, onClose }: CreateGroupModalProps) {
+  const t = useT();
   const toast = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -28,12 +30,12 @@ export function CreateGroupModal({ open, onClose }: CreateGroupModalProps) {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const found: typeof errors = {};
-    if (name.trim().length < 3) found.name = "Give your group a name of at least 3 characters.";
-    if (description.trim().length < 10)
-      found.description = "Describe the group in at least 10 characters.";
+    if (name.trim().length < 3 || name.trim().length > 60) found.name = t("group.nameLength");
+    if (description.trim().length < 10 || description.trim().length > 500)
+      found.description = t("group.descLength");
     setErrors(found);
     if (Object.keys(found).length > 0) return;
-    toast.push(`"${name.trim()}" is ready to go once groups are saved by a backend`);
+    toast.push(t("group.created"));
     close();
   }
 
@@ -41,32 +43,30 @@ export function CreateGroupModal({ open, onClose }: CreateGroupModalProps) {
     <Modal
       open={open}
       onClose={close}
-      title="Create a group"
-      description="Start a study or project group for your classmates."
+      title={t("group.newGroup")}
+      description={t("group.createDesc")}
     >
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <TextField
           id="group-name"
-          label="Group name"
+          label={t("group.name")}
           value={name}
           error={errors.name}
           onChange={(e) => setName(e.target.value)}
         />
         <TextAreaField
           id="group-description"
-          label="What is this group for?"
+          label={t("group.purpose")}
           value={description}
           error={errors.description}
           onChange={(e) => setDescription(e.target.value)}
         />
-        <DemoNotice>
-          Demo only: new groups are validated but not saved, because there is no backend yet.
-        </DemoNotice>
+        <DemoNotice>{t("group.demoNote")}</DemoNotice>
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={close}>
-            Cancel
+            {t("dm.cancel")}
           </Button>
-          <Button type="submit">Create group</Button>
+          <Button type="submit">{t("group.create")}</Button>
         </div>
       </form>
     </Modal>
