@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { AvatarStage } from "@/components/voicing/AvatarStage";
-import { AVATARS, readSavedAvatar } from "@/components/voicing/avatars";
+import { AVATARS, readSavedAvatar, readSavedSide, saveSide } from "@/components/voicing/avatars";
+import { avatarPortrait, ensurePortraits } from "@/components/voicing/avatarPortrait";
 import { useS } from "@/i18n/spaces";
 import { cn } from "@/lib/utils";
 import type { SpaceEnd, SpaceView } from "@/lib/spaces-client";
@@ -26,9 +27,27 @@ export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }:
   const t = useS();
   const [name, setName] = useState(defaultName);
   const [avatar, setAvatar] = useState(readSavedAvatar);
-  const [side, setSide] = useState<"left" | "right">("left");
+  const [side, setSide] = useState<"left" | "right">(readSavedSide);
   const [busy, setBusy] = useState(false);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const isVoice = view.kind === "voice";
+
+  // Render the real 3D characters once into little portrait thumbnails.
+  useEffect(() => {
+    let on = true;
+    void ensurePortraits().then(() => {
+      if (!on) return;
+      const next: Record<string, string> = {};
+      for (const a of AVATARS) {
+        const p = avatarPortrait(a.id);
+        if (p) next[a.id] = p;
+      }
+      setThumbs(next);
+    });
+    return () => {
+      on = false;
+    };
+  }, []);
 
   const blocked =
     ended === "kicked"
@@ -62,6 +81,7 @@ export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }:
     } catch {
       /* storage unavailable */
     }
+    saveSide(side);
     await onJoin({ name: name.trim() || defaultName, avatar, side });
     setBusy(false);
   };
@@ -101,32 +121,47 @@ export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }:
               <>
                 <div>
                   <p className="mb-2 text-sm font-medium">{t("room.avatar")}</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {AVATARS.map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onClick={() => setAvatar(a.id)}
-                        aria-pressed={avatar === a.id}
-                        className={cn(
-                          "rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
-                          avatar === a.id
-                            ? "border-cova-ink bg-cova-pale ring-2 ring-cova-ink/20"
-                            : "border-cova-line hover:bg-cova-bg",
-                        )}
-                      >
-                        <span
-                          className="mx-auto mb-1 block h-7 w-7 rounded-full shadow-inner"
-                          style={{
-                            background: `radial-gradient(circle at 30% 25%, #${a.accent
-                              .toString(16)
-                              .padStart(6, "0")}, #${a.color.toString(16).padStart(6, "0")})`,
-                          }}
-                          aria-hidden="true"
-                        />
-                        {a.label}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+                    {AVATARS.map((a) => {
+                      const thumb = thumbs[a.id];
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => setAvatar(a.id)}
+                          aria-pressed={avatar === a.id}
+                          aria-label={a.label}
+                          title={a.label}
+                          className={cn(
+                            "flex items-center justify-center rounded-full p-1 transition-all",
+                            avatar === a.id
+                              ? "bg-cova-pale ring-2 ring-cova-ink"
+                              : "ring-1 ring-cova-line hover:bg-cova-bg",
+                          )}
+                        >
+                          {thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={thumb}
+                              alt=""
+                              aria-hidden="true"
+                              className="h-12 w-12 rounded-full object-cover"
+                              draggable={false}
+                            />
+                          ) : (
+                            <span
+                              className="block h-12 w-12 rounded-full shadow-inner"
+                              style={{
+                                background: `radial-gradient(circle at 30% 25%, #${a.accent
+                                  .toString(16)
+                                  .padStart(6, "0")}, #${a.color.toString(16).padStart(6, "0")})`,
+                              }}
+                              aria-hidden="true"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div>

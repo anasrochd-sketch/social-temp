@@ -77,6 +77,8 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
 
   const joinReqRef = useRef<JoinParams | null>(null);
   const joinedRef = useRef(false);
+  /** Bumped on every enter() so a re-join on the SAME code re-runs the effect. */
+  const [joinTick, setJoinTick] = useState(0);
 
   const status = view?.status;
   const inRoom =
@@ -93,7 +95,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
     joinReqRef.current = null;
     joinedRef.current = true;
     void space.send({ type: "join", ...params });
-  }, [code, view, space]);
+  }, [code, view, space, joinTick]);
 
   const peerUids = useMemo(
     () => (inRoom && view ? view.members.map((m) => m.uid).sort() : []),
@@ -128,6 +130,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       joinReqRef.current = join ?? null;
       joinedRef.current = false;
       setMuted(false);
+      setJoinTick((n) => n + 1); // forces the join effect even for the same code
       setCode(next);
     },
     [setMuted],
@@ -138,6 +141,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
     joinReqRef.current = null;
     joinedRef.current = false;
     setMuted(false);
+    setJoinTick((n) => n + 1);
     setCode("");
   }, [code, space, setMuted]);
 

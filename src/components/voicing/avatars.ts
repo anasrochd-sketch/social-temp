@@ -108,6 +108,24 @@ export function readSavedAvatar(): string {
   return AVATARS[0]!.id;
 }
 
+/** Reads the stage side (left/right) chosen last time. */
+export function readSavedSide(): "left" | "right" {
+  try {
+    return window.localStorage.getItem("cova-side") === "right" ? "right" : "left";
+  } catch {
+    /* storage unavailable */
+  }
+  return "left";
+}
+
+export function saveSide(side: "left" | "right"): void {
+  try {
+    window.localStorage.setItem("cova-side", side);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function saveAvatar(id: string): void {
   try {
     window.localStorage.setItem("cova-avatar", id);

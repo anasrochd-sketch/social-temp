@@ -1,5 +1,5 @@
 /**
- * The 30 languages supported by "translate for me" and speaker TTS.
+ * The 52 languages supported by "translate for me" and speaker TTS.
  * `code` is the machine-translation code, `tag` the BCP-47 tag used for
  * speech recognition / synthesis, `label` the native name shown in the UI.
  */
@@ -41,6 +41,27 @@ export const LANGS: LangDef[] = [
   { code: "he", tag: "he-IL", label: "עברית", rtl: true },
   { code: "bn", tag: "bn-BD", label: "বাংলা" },
   { code: "sw", tag: "sw-KE", label: "Kiswahili" },
+  { code: "cs", tag: "cs-CZ", label: "Čeština" },
+  { code: "hu", tag: "hu-HU", label: "Magyar" },
+  { code: "ro", tag: "ro-RO", label: "Română" },
+  { code: "bg", tag: "bg-BG", label: "Български" },
+  { code: "sk", tag: "sk-SK", label: "Slovenčina" },
+  { code: "sr", tag: "sr-RS", label: "Српски" },
+  { code: "hr", tag: "hr-HR", label: "Hrvatski" },
+  { code: "sl", tag: "sl-SI", label: "Slovenščina" },
+  { code: "lt", tag: "lt-LT", label: "Lietuvių" },
+  { code: "lv", tag: "lv-LV", label: "Latviešu" },
+  { code: "et", tag: "et-EE", label: "Eesti" },
+  { code: "ca", tag: "ca-ES", label: "Català" },
+  { code: "is", tag: "is-IS", label: "Íslenska" },
+  { code: "sq", tag: "sq-AL", label: "Shqip" },
+  { code: "mk", tag: "mk-MK", label: "Македонски" },
+  { code: "fil", tag: "fil-PH", label: "Filipino" },
+  { code: "af", tag: "af-ZA", label: "Afrikaans" },
+  { code: "ka", tag: "ka-GE", label: "ქართული" },
+  { code: "az", tag: "az-AZ", label: "Azərbaycan" },
+  { code: "uz", tag: "uz-UZ", label: "Oʻzbek" },
+  { code: "ta", tag: "ta-IN", label: "தமிழ்" },
 ];
 
 const LANG_SET = new Set(LANGS.map((l) => l.code));

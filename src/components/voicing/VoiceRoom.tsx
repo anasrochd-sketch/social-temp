@@ -1,21 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DoorClosed, Mic, MicOff, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { VoiceCaptions } from "@/components/voicing/VoiceCaptions";
 import { JoinGate } from "@/components/spaces/JoinGate";
 import { RoomToolbar } from "@/components/spaces/RoomToolbar";
 import { AvatarStage } from "@/components/voicing/AvatarStage";
 import { useRoomRuntime } from "@/components/voicing/RoomRuntime";
+import { useCaptionView } from "@/components/voicing/useCaptionView";
+import { readSavedAvatar, readSavedSide } from "@/components/voicing/avatars";
 import { useS } from "@/i18n/spaces";
+import { api, type SpaceView } from "@/lib/spaces-client";
 
 /**
  * Room page. The connection itself lives in RoomRuntimeProvider (app shell),
  * so navigating away keeps the audio running — this component only paints.
+ *
+ * Visiting another room's page switches straight over (leaving the previous
+ * room in the background): public rooms auto-join with the saved identity,
+ * private rooms show the join/request form. No "you are in another room"
+ * stop-over dialog — pressing create / join lands in the room immediately.
  */
 export function VoiceRoom({ code }: { code: string }) {
   const t = useS();
@@ -23,42 +30,82 @@ export function VoiceRoom({ code }: { code: string }) {
   const runtime = useRoomRuntime();
   const { view, notFound, ended } = runtime;
   const [captionsOpen, setCaptionsOpen] = useState(true);
+  const [missing, setMissing] = useState(false);
 
   const mine = runtime.code === code;
   const inRoom = mine && runtime.inRoom;
   const uid = runtime.uid;
+
+  const switchRef = useRef<string | null>(null);
+  const autoJoinRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (missing) return;
+    if (runtime.code !== code) {
+      // Another room (or nothing) is held — switch over, once per code.
+      if (switchRef.current === code) return;
+      switchRef.current = code;
+      void (async () => {
+        // Check the target room exists; private rooms go through the form.
+        const r = await api<{ space?: SpaceView }>(
+          `/api/spaces/${code}?uid=${encodeURIComponent(runtime.uid)}`,
+        ).catch(() => null);
+        if (!r?.ok || !r.data.space) {
+          setMissing(true);
+          return;
+        }
+        const pub = !!r.data.space.isPublic;
+        const prefs = {
+          name: runtime.name || "Guest",
+          avatar: readSavedAvatar(),
+          side: readSavedSide(),
+        };
+        if (runtime.code) await runtime.leave().catch(() => undefined);
+        if (pub) autoJoinRef.current = code;
+        runtime.enter(code, pub ? prefs : undefined);
+      })();
+      return;
+    }
+    // Already on this room: public rooms join themselves with saved prefs.
+    if (!ended && view && view.isPublic && view.status === "none" && autoJoinRef.current !== code) {
+      autoJoinRef.current = code;
+      runtime.enter(code, {
+        name: runtime.name || "Guest",
+        avatar: readSavedAvatar(),
+        side: readSavedSide(),
+      });
+    }
+  }, [code, view, ended, missing, runtime]);
+
+  // Speech bubbles under the characters, in the viewer's chosen language.
+  const bubbles = useCaptionView(inRoom && view ? view.captions : [], uid);
 
   const leave = async () => {
     await runtime.leave();
     router.push("/voicing");
   };
 
-  if (!mine) {
-    // Another room is still connected — switching rooms means leaving it first.
+  if (missing) {
     return (
-      <Card className="mx-auto max-w-md">
-        <CardBody className="space-y-3 py-8 text-center">
-          <h2 className="text-lg font-semibold">{t("room.anotherOpen")}</h2>
-          <p className="text-sm text-cova-mute">{t("room.anotherHint")}</p>
-          <div className="flex justify-center gap-2">
-            <Button variant="secondary" onClick={() => router.push(`/voicing/${runtime.code}`)}>
-              {t("room.backToRoom")}
-            </Button>
-            <Button
-              onClick={() => {
-                // Leave in the background; the JoinGate shows right after.
-                void runtime.leave().then(() => runtime.enter(code));
-              }}
-            >
-              {t("room.switchRoom")}
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
+      <EmptyState
+        icon={DoorClosed}
+        title={t("room.notFound")}
+        description={code}
+        action={
+          <Button
+            onClick={() => {
+              setMissing(false);
+              router.push("/voicing");
+            }}
+          >
+            {t("room.back")}
+          </Button>
+        }
+      />
     );
   }
 
-  if (notFound || (!view && ended === "closed")) {
+  if (mine && (notFound || (!view && ended === "closed"))) {
     return (
       <EmptyState
         icon={DoorClosed}
@@ -77,7 +124,7 @@ export function VoiceRoom({ code }: { code: string }) {
       />
     );
   }
-  if (!view) return null;
+  if (!mine || !view) return null;
 
   if (!inRoom) {
     return (
@@ -104,9 +151,10 @@ export function VoiceRoom({ code }: { code: string }) {
 
       <div className="relative">
         <AvatarStage
-          className="h-[30rem] rounded-2xl bg-gradient-to-b from-cova-ink to-[#1b2a3a] shadow-lg sm:h-[36rem]"
+          className="h-[26rem] rounded-2xl bg-gradient-to-b from-cova-ink to-[#1b2a3a] shadow-lg sm:h-[32rem]"
           meUid={uid}
           getLevel={runtime.getLevel}
+          bubbles={bubbles}
           members={view.members.map((m) => ({
             uid: m.uid,
             name: m.name,
