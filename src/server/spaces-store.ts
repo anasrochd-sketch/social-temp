@@ -17,6 +17,8 @@ export interface Member {
   avatar: string;
   side: "left" | "right";
   muted: boolean;
+  /** Moderator-set: this person cannot hear the room until restored. */
+  deafened: boolean;
   joinedAt: number;
 }
 interface PendingReq {
@@ -220,6 +222,8 @@ export interface ActionInput {
   role?: string;
   isPublic?: boolean;
   muted?: boolean;
+  /** Deafen toggle for the "deafen" action. */
+  value?: boolean;
   text?: string;
   lang?: string;
   /** Pre-translated caption line (speaker dubbing). */
@@ -259,6 +263,7 @@ export function act(
           avatar,
           side,
           muted: false,
+          deafened: false,
           joinedAt: Date.now(),
           role: uid === s.ownerUid ? "owner" : "member",
         });
@@ -293,6 +298,7 @@ export function act(
           avatar: req.avatar,
           side: req.side,
           muted: false,
+          deafened: false,
           joinedAt: Date.now(),
           role: "member",
         });
@@ -311,8 +317,18 @@ export function act(
     case "forceMute": {
       if (!canModerate(me) || !target || target.role === "owner")
         return { ok: false, error: "forbidden" };
+      if (me!.role === "mod" && target.role === "mod") return { ok: false, error: "forbidden" };
       target.muted = true;
       push(s.code, target.uid, "forceMute", {});
+      return done();
+    }
+    case "deafen": {
+      // Voice rooms: a moderator stops a member from hearing the room (or restores them).
+      if (!canModerate(me) || !target || target.role === "owner")
+        return { ok: false, error: "forbidden" };
+      if (me!.role === "mod" && target.role === "mod") return { ok: false, error: "forbidden" };
+      target.deafened = a.value !== false;
+      push(s.code, target.uid, "deafenState", { value: target.deafened });
       return done();
     }
     case "setRole": {

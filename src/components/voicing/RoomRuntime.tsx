@@ -13,7 +13,11 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MicOff, PhoneOff, Radio } from "lucide-react";
-import { useVoiceMesh } from "@/components/voicing/useVoiceMesh";
+import {
+  useVoiceMesh,
+  type RoomVoiceCtl,
+  type RoomVoiceCtlActions,
+} from "@/components/voicing/useVoiceMesh";
 import { useS } from "@/i18n/spaces";
 import {
   useIdentity,
@@ -51,6 +55,8 @@ interface RoomRuntimeValue {
   micError: boolean;
   muted: boolean;
   inRoom: boolean;
+  /** Moderator-set: I cannot hear the room right now. */
+  deafened: boolean;
   /** Loudness 0..1 for any member (drives the 3D avatars). */
   getLevel: (uid: string) => number;
   enter: (code: string, join?: JoinParams) => void;
@@ -59,6 +65,19 @@ interface RoomRuntimeValue {
   onSignal: (fn: (s: Signal) => void) => () => void;
   onForceMute: (fn: () => void) => () => void;
   toggleMute: (value: boolean) => void;
+  /** Ask the browser for the microphone again (mobile permission misses). */
+  retryMic: () => void;
+  /** Screen sharing (mine). */
+  sharing: boolean;
+  toggleShare: () => void;
+  shareNotice: string | null;
+  /** uid -> MediaStream of a room-mate's live shared screen. */
+  remoteVideos: Record<string, MediaStream>;
+  /** Remote-control session (verification code, who controls whom). */
+  ctl: RoomVoiceCtl;
+  ctlActions: RoomVoiceCtlActions;
+  /** Duck one peer's raw audio (used by the dubbing engine). */
+  setPeerVolume: (uid: string, v: number) => void;
 }
 
 const RoomRuntimeContext = createContext<RoomRuntimeValue | null>(null);
@@ -107,7 +126,23 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
     [space],
   );
   // The mesh owns the mute state (it flips the actual audio track).
-  const { getLevel, micError, muted, setMuted } = useVoiceMesh({
+  const {
+    getLevel,
+    micError,
+    muted,
+    setMuted,
+    retryMic,
+    deafened,
+    setDeafened,
+    setPeerVolume,
+    unlock,
+    sharing,
+    toggleShare,
+    shareNotice,
+    remoteVideos,
+    ctl,
+    ctlActions,
+  } = useVoiceMesh({
     enabled: inRoom,
     meUid: uid,
     peerUids,
@@ -125,15 +160,28 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
   );
   useEffect(() => space.onForceMute(() => toggleMute(true)), [space, toggleMute]);
 
+  // Moderator deafen: live event + the member record as source of truth.
+  const setDeafenedRef = useRef(setDeafened);
+  useEffect(() => {
+    setDeafenedRef.current = setDeafened;
+  });
+  useEffect(() => space.onDeafen((value) => setDeafenedRef.current(value)), [space]);
+  useEffect(() => {
+    if (!view || !uid) return;
+    const me = view.members.find((m) => m.uid === uid);
+    if (me) setDeafenedRef.current(me.deafened);
+  }, [view, uid]);
+
   const enter = useCallback(
     (next: string, join?: JoinParams) => {
       joinReqRef.current = join ?? null;
       joinedRef.current = false;
       setMuted(false);
+      unlock(); // join tap = user gesture: unlock audio on phones
       setJoinTick((n) => n + 1); // forces the join effect even for the same code
       setCode(next);
     },
-    [setMuted],
+    [setMuted, unlock],
   );
 
   const leave = useCallback(async () => {
@@ -156,6 +204,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       micError,
       muted,
       inRoom,
+      deafened,
       getLevel,
       enter,
       leave,
@@ -163,8 +212,38 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       onSignal: space.onSignal,
       onForceMute: space.onForceMute,
       toggleMute,
+      retryMic,
+      sharing,
+      toggleShare,
+      shareNotice,
+      remoteVideos,
+      ctl,
+      ctlActions,
+      setPeerVolume,
     }),
-    [code, uid, name, view, space, micError, muted, inRoom, getLevel, enter, leave, toggleMute],
+    [
+      code,
+      uid,
+      name,
+      view,
+      space,
+      micError,
+      muted,
+      inRoom,
+      deafened,
+      getLevel,
+      enter,
+      leave,
+      toggleMute,
+      retryMic,
+      sharing,
+      toggleShare,
+      shareNotice,
+      remoteVideos,
+      ctl,
+      ctlActions,
+      setPeerVolume,
+    ],
   );
 
   return (

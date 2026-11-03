@@ -5,6 +5,8 @@ import {
   Check,
   Copy,
   Crown,
+  Ear,
+  EarOff,
   Languages,
   MicOff,
   QrCode,
@@ -39,7 +41,7 @@ export function RoomToolbar({
   onToggleCaptions: () => void;
 }) {
   const t = useS();
-  const [copied, setCopied] = useState<"link" | "code" | null>(null);
+  const [copied, setCopied] = useState<"link" | "code" | "people" | null>(null);
   const [open, setOpen] = useState<"people" | "requests" | "qr" | "owner" | null>(null);
   const isOwner = view.status === "owner";
   const canMod = isOwner || view.status === "mod";
@@ -49,9 +51,15 @@ export function RoomToolbar({
       ? ""
       : `${window.location.origin}${roomPath(view.kind, view.code)}`;
 
-  const copy = async (what: "link" | "code") => {
+  const copy = async (what: "link" | "code" | "people") => {
     try {
-      await navigator.clipboard.writeText(what === "code" ? view.code : shareLink);
+      const value =
+        what === "code"
+          ? view.code
+          : what === "people"
+            ? view.members.map((m) => m.name).join("\n")
+            : shareLink;
+      await navigator.clipboard.writeText(value);
       setCopied(what);
       window.setTimeout(() => setCopied(null), 1500);
     } catch {
@@ -87,6 +95,21 @@ export function RoomToolbar({
         <span className="flex items-center gap-1.5">
           {copied === "code" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           {copied === "code" ? t("room.copied") : t("room.copyCode")}
+        </span>
+      </button>
+      <button
+        type="button"
+        className={btn}
+        onClick={() => void copy("people")}
+        title={`${t("room.participants")} (${view.members.length})`}
+      >
+        <span className="flex items-center gap-1.5">
+          {copied === "people" ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Users className="h-3.5 w-3.5" />
+          )}
+          {copied === "people" ? t("room.copied") : t("room.copyPeople")}
         </span>
       </button>
 
@@ -175,6 +198,9 @@ export function RoomToolbar({
                     {m.muted && (
                       <MicOff className="h-3.5 w-3.5 shrink-0 text-cova-mute" aria-hidden="true" />
                     )}
+                    {m.deafened && (
+                      <EarOff className="h-3.5 w-3.5 shrink-0 text-cova-mute" aria-hidden="true" />
+                    )}
                   </span>
                   {canActOn && (
                     <span className="flex shrink-0 gap-1">
@@ -199,8 +225,26 @@ export function RoomToolbar({
                           variant="ghost"
                           onClick={() => void send({ type: "forceMute", target: m.uid })}
                           aria-label={t("room.muteThem")}
+                          title={t("room.muteThem")}
                         >
                           <MicOff className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      )}
+                      {view.kind === "voice" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            void send({ type: "deafen", target: m.uid, value: !m.deafened })
+                          }
+                          aria-label={m.deafened ? t("room.undeafen") : t("room.deafen")}
+                          title={m.deafened ? t("room.undeafen") : t("room.deafen")}
+                        >
+                          {m.deafened ? (
+                            <Ear className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <EarOff className="h-4 w-4" aria-hidden="true" />
+                          )}
                         </Button>
                       )}
                       <Button

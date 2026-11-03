@@ -74,6 +74,7 @@ export function useSpace(code: string, uid: string) {
   const [live, setLive] = useState(false);
   const signalSubs = useRef(new Set<(s: Signal) => void>());
   const muteSubs = useRef(new Set<() => void>());
+  const deafSubs = useRef(new Set<(value: boolean) => void>());
   const onSignal = useCallback((fn: (s: Signal) => void) => {
     signalSubs.current.add(fn);
     return () => void signalSubs.current.delete(fn);
@@ -81,6 +82,10 @@ export function useSpace(code: string, uid: string) {
   const onForceMute = useCallback((fn: () => void) => {
     muteSubs.current.add(fn);
     return () => void muteSubs.current.delete(fn);
+  }, []);
+  const onDeafen = useCallback((fn: (value: boolean) => void) => {
+    deafSubs.current.add(fn);
+    return () => void deafSubs.current.delete(fn);
   }, []);
 
   // Fresh room: drop any state left over from the previous one (React's
@@ -126,6 +131,15 @@ export function useSpace(code: string, uid: string) {
       ),
     );
     es.addEventListener("forceMute", () => muteSubs.current.forEach((fn) => fn()));
+    es.addEventListener("deafenState", (e) => {
+      let value = true;
+      try {
+        value = (JSON.parse((e as MessageEvent<string>).data) as { value?: boolean }).value !== false;
+      } catch {
+        /* keep default */
+      }
+      deafSubs.current.forEach((fn) => fn(value));
+    });
     es.addEventListener("kicked", () => {
       setEnded("kicked");
       es.close();
@@ -152,7 +166,7 @@ export function useSpace(code: string, uid: string) {
     [code, uid],
   );
 
-  return { view, notFound, ended, live, send, onSignal, onForceMute };
+  return { view, notFound, ended, live, send, onSignal, onForceMute, onDeafen };
 }
 
 /** Awards XP for time spent in a voice room: one minute every 60 s while connected. */

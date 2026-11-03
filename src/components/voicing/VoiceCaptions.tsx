@@ -50,6 +50,7 @@ interface SpeechRecognitionLike {
 const shortLang = (lang: string) => (lang.split("-")[0] || "?").toUpperCase();
 
 const MODE_KEY = "cova-cap-mode";
+const SRCLANG_KEY = "cova-cap-srclang";
 
 function readMode(): "text" | "voice" {
   try {
@@ -59,23 +60,43 @@ function readMode(): "text" | "voice" {
   }
 }
 
+function readSrcLang(): string {
+  try {
+    return window.localStorage.getItem(SRCLANG_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /**
- * Live captions + translation for voice rooms.
+ * Live captions + the two-way dubbing engine for voice rooms.
  *
- * - Everyone: picks a "translate for me" language (50+ available) and reads
- *   every line in it — with a text-only / auto-voice mode switch (persisted).
- * - Speaker: optionally picks a "voice-out" language — every spoken line is
- *   then machine-translated, dubbed with TTS and shared pre-translated.
- * Best in Chrome / Edge (speech recognition is a browser engine feature).
+ * LISTEN DUBBING (everyone): pick "translate for me" — every line from the
+ * others is translated into that language and, in auto-voice mode, spoken by
+ * MY browser only. The speaker's raw microphone is ducked while the dub
+ * plays, so the dub is what you actually hear.
+ *
+ * SPEAK DUBBING (speaker): pick a "dub my voice into" language — every final
+ * recognition result is machine-translated, spoken on MY device and shared
+ * pre-translated (tt + tlang), so the whole room can hear my chosen language
+ * and read it under my character.
+ *
+ * The component stays mounted even when the panel is hidden (expanded=false):
+ * translation and dubbing keep running in the background.
  */
 export function VoiceCaptions({
   captions,
   meUid,
   send,
+  expanded,
+  setPeerVolume,
 }: {
   captions: Caption[];
   meUid: string;
   send: Send;
+  /** Panel visibility only — translation/dubbing stay active when false. */
+  expanded: boolean;
+  setPeerVolume: (uid: string, v: number) => void;
 }) {
   const t = useS();
   const { locale } = useI18n();
@@ -84,6 +105,8 @@ export function VoiceCaptions({
   const [notice, setNotice] = useState("");
   /** "Translate for me" target — shared with the speech bubbles. */
   const [target, setTarget] = useTargetLang();
+  /** The language I actually speak (recognition input). */
+  const [srcLang, setSrcLang] = useState(readSrcLang);
   /** Speaker voice-out language (translation code, "" = off). */
   const [voiceOut, setVoiceOut] = useState("");
   /** Listen to incoming translations automatically, or read them only. */
@@ -96,6 +119,8 @@ export function VoiceCaptions({
   const lastSentRef = useRef({ text: "", at: 0 });
   const requestedRef = useRef(new Set<string>());
   const spokenRef = useRef(new Set<string>());
+  const duckedRef = useRef(new Set<string>());
+  const duckTimers = useRef(new Map<string, number>());
   const listRef = useRef<HTMLDivElement | null>(null);
   const voiceOutRef = useRef(voiceOut);
   useEffect(() => {
@@ -110,6 +135,19 @@ export function VoiceCaptions({
       /* storage unavailable */
     }
   }, [autoDub]);
+  const srcLangRef = useRef(srcLang);
+  useEffect(() => {
+    srcLangRef.current = srcLang;
+    try {
+      window.localStorage.setItem(SRCLANG_KEY, srcLang);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [srcLang]);
+  const setPVRef = useRef(setPeerVolume);
+  useEffect(() => {
+    setPVRef.current = setPeerVolume;
+  }, [setPeerVolume]);
   const localeTag = speechLang(locale);
 
   const supported =
@@ -118,6 +156,20 @@ export function VoiceCaptions({
       (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ??
       (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
     );
+
+  /** Lowers a speaker's raw microphone while their dub line plays. */
+  const duckSpeaker = useCallback((uid: string, ms: number) => {
+    setPVRef.current(uid, 0.06);
+    const prev = duckTimers.current.get(uid);
+    if (prev) window.clearTimeout(prev);
+    duckTimers.current.set(
+      uid,
+      window.setTimeout(() => {
+        duckTimers.current.delete(uid);
+        setPVRef.current(uid, 1);
+      }, ms),
+    );
+  }, []);
 
   const pushCaption = useCallback(
     (text: string) => {
@@ -129,6 +181,7 @@ export function VoiceCaptions({
       if (now - last.at < 600) return; // throttle bursts
       lastSentRef.current = { text: clean, at: now };
 
+      const spokenTag = findLang(srcLangRef.current)?.tag ?? localeTag;
       const out = voiceOutRef.current;
       if (out) {
         // Speaker dubbing: translate, speak it here, share the translation.
@@ -139,13 +192,13 @@ export function VoiceCaptions({
           void send({
             type: "caption",
             text: clean,
-            lang: localeTag,
+            lang: spokenTag,
             tt: tt ?? undefined,
             tlang: tt ? lang : undefined,
           });
         })();
       } else {
-        void send({ type: "caption", text: clean, lang: localeTag });
+        void send({ type: "caption", text: clean, lang: spokenTag });
       }
     },
     [send, localeTag],
@@ -170,7 +223,7 @@ export function VoiceCaptions({
     }
     setNotice("");
     const rec = new Ctor();
-    rec.lang = localeTag;
+    rec.lang = findLang(srcLangRef.current)?.tag ?? localeTag;
     rec.continuous = true;
     rec.interimResults = false;
 
@@ -215,10 +268,15 @@ export function VoiceCaptions({
   const targetTag = findLang(targetCode)?.tag ?? localeTag;
 
   // Translate new lines from other people into my chosen target language,
-  // and (in voice mode) read them aloud once.
+  // duck their raw microphone while their dub plays, and (in voice mode)
+  // read the translated line aloud once.
   useEffect(() => {
     for (const c of captions) {
       if (c.uid === meUid) continue;
+      const isNew = !duckedRef.current.has(c.id);
+      if (isNew) duckedRef.current.add(c.id);
+      // A speaker with dubbing on: their raw mic ducks while the dub plays.
+      if (isNew && c.tt) duckSpeaker(c.uid, 6000);
       // A dub that already arrives in my language needs no request.
       const dubMatchesMe = !!c.tt && (findLang(c.tlang ?? "")?.code ?? "") === targetCode;
       const key = `${c.id}:${targetCode}`;
@@ -233,16 +291,18 @@ export function VoiceCaptions({
             setTranslated((prev) => ({ ...prev, [key]: out }));
             if (autoDubRef.current === "voice" && !spokenRef.current.has(key)) {
               spokenRef.current.add(key);
+              if (isNew) duckSpeaker(c.uid, 5000);
               speakText(out, targetTag);
             }
           }
         })();
       } else if (autoDubRef.current === "voice" && !spokenRef.current.has(key)) {
         spokenRef.current.add(key);
+        if (isNew) duckSpeaker(c.uid, 6000);
         speakText(c.tt!, targetTag);
       }
     }
-  }, [captions, targetCode, meUid, targetTag]);
+  }, [captions, targetCode, meUid, targetTag, duckSpeaker]);
 
   // Keep the newest line in view.
   useEffect(() => {
@@ -252,6 +312,9 @@ export function VoiceCaptions({
   const selectCls =
     "mt-1 h-9 w-full rounded-lg border border-cova-line bg-white px-2 text-xs font-medium";
 
+  // The panel can be closed — the hooks above keep translating and dubbing.
+  if (!expanded) return null;
+
   return (
     <Card>
       <CardBody className="space-y-3">
@@ -260,12 +323,27 @@ export function VoiceCaptions({
           {t("cap.title")}
         </h3>
 
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           <label className="block text-xs font-medium text-cova-mute">
             {t("cap.forMe")}
             <select
               value={target}
               onChange={(e) => setTarget(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">{t("cap.interfaceLang")}</option>
+              {LANGS.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-cova-mute">
+            {t("cap.speakLang")}
+            <select
+              value={srcLang}
+              onChange={(e) => setSrcLang(e.target.value)}
               className={selectCls}
             >
               <option value="">{t("cap.interfaceLang")}</option>
@@ -292,6 +370,8 @@ export function VoiceCaptions({
             </select>
           </label>
         </div>
+
+        <p className="text-[11px] leading-snug text-cova-mute">{t("cap.dubHint")}</p>
 
         <div className="flex items-center gap-2" role="group" aria-label={t("cap.mode")}>
           <span className="text-xs font-medium text-cova-mute">{t("cap.mode")}</span>
@@ -354,10 +434,14 @@ export function VoiceCaptions({
                   : translated[`${c.id}:${targetCode}`];
 
               // Main line: my own words, or the best translation available.
-              const mainText = mine ? c.text : (trans ?? c.text);
-              const mainLang = mine ? c.lang : trans ? targetTag : (c.tlang ?? c.lang);
-              const sub = mine ? (c.tt ? c.tt : null) : trans ? c.text : null;
-              const subLang = mine ? (c.tlang ?? c.lang) : c.lang;
+              const mainText = mine ? (c.tt ?? c.text) : (trans ?? c.text);
+              const mainLang = mine
+                ? (c.tt ? (c.tlang ?? c.lang) : c.lang)
+                : trans
+                  ? targetTag
+                  : (c.tlang ?? c.lang);
+              const sub = mine ? (c.tt ? c.text : null) : trans ? c.text : null;
+              const subLang = mine ? c.lang : c.lang;
 
               const speak = () => speakText(trans ?? c.text, mainLang);
 

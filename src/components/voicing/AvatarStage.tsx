@@ -13,6 +13,9 @@ export interface StageMember {
   side: "left" | "right";
   role: "owner" | "mod" | "member";
   muted: boolean;
+  deafened: boolean;
+  /** Used to place characters in room-fill order on the stage. */
+  joinedAt: number;
 }
 
 interface Props {
@@ -170,24 +173,21 @@ export function AvatarStage({ members, meUid, getLevel, bubbles, className }: Pr
     }
 
     function layout() {
-      const list = membersRef.current;
-      (["left", "right"] as const).forEach((side) => {
-        const sideList = list.filter((m) => m.side === side);
-        const rows = Math.max(1, Math.ceil(sideList.length / 2));
-        const scale = Math.min(0.85, 1.9 / rows);
-        sideList.forEach((m, i) => {
-          const a = avatars.get(m.uid);
-          if (!a) return;
-          const col = i % 2;
-          const row = Math.floor(i / 2);
-          const dir = side === "left" ? -1 : 1;
-          a.target.set(
-            dir * (2.4 + col * 1.55 * scale),
-            (rows - 1 - row) * 1.9 * scale - (rows - 1) * 0.95 * scale,
-            -col * 0.7,
-          );
-          a.scale = scale;
-        });
+      // Fill-order stage: the first person who joined stands at the left, the
+      // next to their right, and so on — one tidy row instead of a crowd.
+      const list = [...membersRef.current].sort(
+        (a, b) => a.joinedAt - b.joinedAt || a.uid.localeCompare(b.uid),
+      );
+      const n = list.length;
+      const spread = n > 1 ? Math.min(2.45, 9.2 / (n - 1)) : 0;
+      list.forEach((m, i) => {
+        const a = avatars.get(m.uid);
+        if (!a) return;
+        const x = (i - (n - 1) / 2) * spread;
+        // Gentle depth stagger so bigger rooms do not look like a queue.
+        const z = n > 3 ? (i % 2 === 0 ? -0.5 : 0.5) : 0;
+        a.target.set(x, 0, z);
+        a.scale = Math.min(0.92, 1.5 / Math.sqrt(Math.max(n, 1)));
       });
     }
 
@@ -219,7 +219,8 @@ export function AvatarStage({ members, meUid, getLevel, bubbles, className }: Pr
         }
         const a = avatars.get(m.uid)!;
         const crown = m.role === "owner" ? "👑 " : m.role === "mod" ? "🛡 " : "";
-        a.label.textContent = `${crown}${m.name}${m.uid === meRef.current ? " •" : ""}${m.muted ? " 🔇" : ""}`;
+        const flags = `${m.muted ? " 🔇" : ""}${m.deafened ? " 🙉" : ""}`;
+        a.label.textContent = `${crown}${m.name}${m.uid === meRef.current ? " •" : ""}${flags}`;
       }
       layout();
     }
@@ -233,7 +234,8 @@ export function AvatarStage({ members, meUid, getLevel, bubbles, className }: Pr
       renderer.domElement.style.width = "100%";
       renderer.domElement.style.height = "100%";
       camera.aspect = w / Math.max(h, 1);
-      camera.position.z = camera.aspect < 1.1 ? 15 : 11;
+      const many = membersRef.current.length >= 6;
+      camera.position.z = camera.aspect < 1.1 ? 15.5 : many ? 12.5 : 11;
       camera.updateProjectionMatrix();
     }
     const ro = new ResizeObserver(resize);

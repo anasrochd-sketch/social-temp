@@ -109,7 +109,14 @@ export function useCaptionView(captions: Caption[], meUid: string): Record<strin
       seen.add(c.uid);
       const dubMatches = !!c.tt && (findLang(c.tlang ?? "")?.code ?? "") === effective;
       const key = `${c.id}:${effective}`;
-      const text = c.uid === meUid ? c.text : dubMatches ? c.tt! : (translated.get(key) ?? c.text);
+      // My own bubble shows my chosen dub line when I speak with dubbing on —
+      // that is exactly what the room hears from me.
+      const text =
+        c.uid === meUid
+          ? (c.tt ?? c.text)
+          : dubMatches
+            ? c.tt!
+            : (translated.get(key) ?? c.text);
       next[c.uid] = text.length > 120 ? `${text.slice(0, 117)}…` : text;
     }
     const sig = Object.entries(next)

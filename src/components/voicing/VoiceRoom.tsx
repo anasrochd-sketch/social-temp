@@ -2,18 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DoorClosed, Mic, MicOff, PhoneOff } from "lucide-react";
+import {
+  DoorClosed,
+  Mic,
+  MicOff,
+  MonitorUp,
+  MousePointerClick,
+  PhoneOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { VoiceCaptions } from "@/components/voicing/VoiceCaptions";
 import { JoinGate } from "@/components/spaces/JoinGate";
 import { RoomToolbar } from "@/components/spaces/RoomToolbar";
 import { AvatarStage } from "@/components/voicing/AvatarStage";
+import { ParticipantsPanel } from "@/components/voicing/ParticipantsPanel";
+import { ScreenShareOverlay } from "@/components/voicing/ScreenShareOverlay";
 import { useRoomRuntime } from "@/components/voicing/RoomRuntime";
 import { useCaptionView } from "@/components/voicing/useCaptionView";
 import { readSavedAvatar, readSavedSide } from "@/components/voicing/avatars";
 import { useS } from "@/i18n/spaces";
 import { api, type SpaceView } from "@/lib/spaces-client";
+import { cn } from "@/lib/utils";
 
 /**
  * Room page. The connection itself lives in RoomRuntimeProvider (app shell),
@@ -21,7 +31,7 @@ import { api, type SpaceView } from "@/lib/spaces-client";
  *
  * Visiting another room's page switches straight over (leaving the previous
  * room in the background): public rooms auto-join with the saved identity,
- * private rooms show the join/request form. No "you are in another room"
+ * private rooms show the request form. No "you are in another room"
  * stop-over dialog — pressing create / join lands in the room immediately.
  */
 export function VoiceRoom({ code }: { code: string }) {
@@ -139,6 +149,17 @@ export function VoiceRoom({ code }: { code: string }) {
     );
   }
 
+  const membersName = Object.fromEntries(view.members.map((m) => [m.uid, m.name]));
+
+  /** Remote button: share + open the control code in one press. */
+  const remoteClick = () => {
+    void (async () => {
+      if (!runtime.sharing) await runtime.toggleShare();
+      if (runtime.ctl.allowed || runtime.ctl.controlledBy) runtime.ctlActions.disableControl();
+      else runtime.ctlActions.enableControl();
+    })();
+  };
+
   return (
     <div className="space-y-4">
       <RoomToolbar
@@ -147,6 +168,20 @@ export function VoiceRoom({ code }: { code: string }) {
         send={runtime.send}
         captionsOpen={captionsOpen}
         onToggleCaptions={() => setCaptionsOpen((v) => !v)}
+      />
+
+      {runtime.deafened && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800" role="alert">
+          {t("room.deafenedYou")}
+        </p>
+      )}
+
+      <ScreenShareOverlay
+        members={membersName}
+        remoteVideos={runtime.remoteVideos}
+        sharing={runtime.sharing}
+        ctl={runtime.ctl}
+        ctlActions={runtime.ctlActions}
       />
 
       <div className="relative">
@@ -162,22 +197,49 @@ export function VoiceRoom({ code }: { code: string }) {
             side: m.side,
             role: m.role,
             muted: m.uid === uid ? runtime.muted : m.muted,
+            deafened: m.uid === uid ? runtime.deafened : m.deafened,
+            joinedAt: m.joinedAt,
           }))}
         />
-        <div className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-3">
+        {/* Bottom control bar: mute / share / remote / leave, side by side. */}
+        <div className="absolute inset-x-0 bottom-4 flex flex-wrap items-center justify-center gap-2 px-3">
           <Button
             size="lg"
-            variant={runtime.muted ? "danger" : "secondary"}
-            onClick={() => runtime.toggleMute(!runtime.muted)}
-            disabled={runtime.micError}
+            variant={runtime.muted || runtime.micError ? "danger" : "secondary"}
+            onClick={() => {
+              if (runtime.micError) runtime.retryMic();
+              else runtime.toggleMute(!runtime.muted);
+            }}
             aria-pressed={runtime.muted}
           >
-            {runtime.muted ? (
+            {runtime.micError || runtime.muted ? (
               <MicOff className="h-5 w-5" aria-hidden="true" />
             ) : (
               <Mic className="h-5 w-5" aria-hidden="true" />
             )}
-            {runtime.muted ? t("room.unmute") : t("room.mute")}
+            {runtime.micError
+              ? t("room.micRetry")
+              : runtime.muted
+                ? t("room.unmute")
+                : t("room.mute")}
+          </Button>
+          <Button
+            size="lg"
+            variant={runtime.sharing ? "danger" : "secondary"}
+            onClick={() => void runtime.toggleShare()}
+            aria-pressed={runtime.sharing}
+          >
+            <MonitorUp className="h-5 w-5" aria-hidden="true" />
+            {runtime.sharing ? t("room.shareStop") : t("room.share")}
+          </Button>
+          <Button
+            size="lg"
+            variant="secondary"
+            className={cn(runtime.ctl.allowed && "border-cova-ink bg-cova-pale")}
+            onClick={remoteClick}
+          >
+            <MousePointerClick className="h-5 w-5" aria-hidden="true" />
+            {t("room.remote")}
           </Button>
           <Button size="lg" variant="danger" onClick={() => void leave()}>
             <PhoneOff className="h-5 w-5" aria-hidden="true" />
@@ -191,8 +253,32 @@ export function VoiceRoom({ code }: { code: string }) {
           {t("room.micOff")}
         </p>
       )}
+      {runtime.shareNotice && (
+        <p className="rounded-lg bg-cova-pale px-3 py-2 text-sm" role="status">
+          {t(runtime.shareNotice as Parameters<typeof t>[0])}
+        </p>
+      )}
 
-      {captionsOpen && <VoiceCaptions captions={view.captions} meUid={uid} send={runtime.send} />}
+      {/* Always mounted: translation + dubbing keep running when collapsed. */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className={cn(!captionsOpen && "hidden")}>
+          <VoiceCaptions
+            captions={view.captions}
+            meUid={uid}
+            send={runtime.send}
+            expanded={captionsOpen}
+            setPeerVolume={runtime.setPeerVolume}
+          />
+        </div>
+        <div className={cn(!captionsOpen && "lg:col-span-2")}>
+          <ParticipantsPanel
+            view={view}
+            meUid={uid}
+            deafened={runtime.deafened}
+            send={runtime.send}
+          />
+        </div>
+      </div>
     </div>
   );
 }

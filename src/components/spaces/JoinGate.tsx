@@ -188,7 +188,18 @@ export function JoinGate({ view, ended, defaultName, onJoin, onCancel, onBack }:
                 <AvatarStage
                   className="h-56 rounded-xl bg-gradient-to-b from-cova-ink to-[#1b2a3a]"
                   meUid="preview"
-                  members={[{ uid: "preview", name, avatar, side, role: "member", muted: false }]}
+                  members={[
+                    {
+                      uid: "preview",
+                      name,
+                      avatar,
+                      side,
+                      role: "member",
+                      muted: false,
+                      deafened: false,
+                      joinedAt: 0,
+                    },
+                  ]}
                   getLevel={wobble}
                 />
               </>
