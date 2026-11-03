@@ -138,10 +138,11 @@ const en = {
   "room.ctlStop": "Stop control",
   "room.ctlCode": "Control code",
   "room.ctlCodeHint": "Read this 6-digit code to the person you want to let control your screen.",
-  "room.ctlRequest": "Control screen",
+  "room.ctlRequest": "Enter control code",
   "room.ctlEnter": "Enter the code shown on {name}'s screen",
   "room.ctlActive": "You are controlling {name}'s screen",
   "room.ctlWrong": "Wrong code.",
+  "room.ctlBusy": "Someone else is already controlling — wait for your turn.",
   "room.ctlRevoked": "Remote control was stopped.",
   "room.ctlUnavailable": "The control channel is not connected yet — try again in a second.",
   "room.ctlNeedShare": "Start sharing your screen first, then allow control.",
@@ -149,8 +150,10 @@ const en = {
   "room.sharingBy": "{name} is sharing a screen",
   "room.sharingYou": "You are sharing your screen",
   "cap.speakLang": "I speak",
+  "cap.listenTitle": "Listening",
+  "cap.speakTitle": "Speaking & dubbing",
   "cap.dubHint":
-    "“I speak” is the language you talk (used by recognition). “Dub my voice into” makes the room hear your speech translated by voice — the translated line also shows under your character. “Translate for me” + auto voice speaks the others' lines in your language only for you.",
+    "Speak: pick your language and a dub language, then transcribe — the room hears you dubbed. Listen: pick a language and others' lines arrive in it, read aloud for you alone in auto-voice mode.",
 } as const;
 export type SKey = keyof typeof en;
 
@@ -290,10 +293,11 @@ const fr: Record<SKey, string> = {
   "room.ctlStop": "Arrêter le contrôle",
   "room.ctlCode": "Code de contrôle",
   "room.ctlCodeHint": "Lisez ce code à 6 chiffres à la personne que vous voulez laisser contrôler votre écran.",
-  "room.ctlRequest": "Contrôler l'écran",
+  "room.ctlRequest": "Entrer le code de contrôle",
   "room.ctlEnter": "Saisissez le code affiché sur l'écran de {name}",
   "room.ctlActive": "Vous contrôlez l'écran de {name}",
   "room.ctlWrong": "Code incorrect.",
+  "room.ctlBusy": "Quelqu'un d'autre contrôle déjà — attendez votre tour.",
   "room.ctlRevoked": "Le contrôle à distance a été arrêté.",
   "room.ctlUnavailable": "Le canal de contrôle n'est pas encore connecté — réessayez dans une seconde.",
   "room.ctlNeedShare": "Partagez d'abord votre écran, puis autorisez le contrôle.",
@@ -301,8 +305,10 @@ const fr: Record<SKey, string> = {
   "room.sharingBy": "{name} partage un écran",
   "room.sharingYou": "Vous partagez votre écran",
   "cap.speakLang": "Je parle",
+  "cap.listenTitle": "Écoute",
+  "cap.speakTitle": "Parole et doublage",
   "cap.dubHint":
-    "« Je parle » est la langue dans laquelle vous parlez (utilisée par la reconnaissance). « Doubler ma voix » fait entendre à la salle votre discours traduit en voix — la ligne traduite s'affiche aussi sous votre personnage. « Traduire pour moi » + voix auto lit les phrases des autres dans votre langue, pour vous seul.",
+    "Parler : choisissez votre langue puis une langue de doublage et lancez la transcription — la salle vous entend doublé. Écouter : choisissez une langue et les phrases des autres arrivent dans celle-ci, lues à voix haute pour vous seul en mode voix auto.",
 };
 
 const ar: Record<SKey, string> = {
@@ -437,10 +443,11 @@ const ar: Record<SKey, string> = {
   "room.ctlStop": "إيقاف التحكم",
   "room.ctlCode": "كود التحكم",
   "room.ctlCodeHint": "اقرأ هذا الكود المكوّن من 6 أرقام للشخص الذي تريد منحه التحكم بشاشتك.",
-  "room.ctlRequest": "التحكم بالشاشة",
+  "room.ctlRequest": "أدخل كود التحكم",
   "room.ctlEnter": "أدخل الكود الظاهر على شاشة {name}",
   "room.ctlActive": "أنت تتحكم في شاشة {name}",
   "room.ctlWrong": "الكود غير صحيح.",
+  "room.ctlBusy": "شخص آخر يتحكم حاليًا — انتظر دورك.",
   "room.ctlRevoked": "تم إيقاف التحكم عن بعد.",
   "room.ctlUnavailable": "قناة التحكم لم تتصل بعد — حاول بعد ثانية.",
   "room.ctlNeedShare": "شارك شاشتك أولًا ثم اسمح بالتحكم.",
@@ -448,8 +455,10 @@ const ar: Record<SKey, string> = {
   "room.sharingBy": "{name} يشارك شاشته",
   "room.sharingYou": "أنت تشارك شاشتك",
   "cap.speakLang": "أتكلم",
+  "cap.listenTitle": "الاستماع",
+  "cap.speakTitle": "الكلام والدبلجة",
   "cap.dubHint":
-    "«أتكلم» هي اللغة التي تتحدث بها (يستخدمها التعرف على الكلام). «دبلجة صوتي إلى» تجعل الغرفة تسمع كلامك مترجمًا صوتيًا — ويظهر السطر المترجم تحت شخصيتك أيضًا. «ترجم لي» + صوت تلقائي يقرأ كلام الآخرين بلغتك لك وحدك.",
+    "للكلام: اختر لغتك ثم لغة الدبلجة وشغّل التعرف — تسمعك الغرفة بدبلجتها. للاستماع: اختر لغة وسيصلك كلام الآخرين بها، والصوت التلقائي يقرأه لك وحدك.",
 };
 
 const catalogs: Record<Locale, Record<SKey, string>> = { en, fr, ar };

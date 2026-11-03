@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Signal } from "@/lib/spaces-client";
-import { injectKey, injectPointer, injectWheel } from "./roomControl";
+import { injectKey, injectPointer, injectWheel, ctlVerifyDecision } from "./roomControl";
 
 /**
  * Full-mesh WebRTC audio for voice rooms, hardened for cross-device calls:
@@ -103,7 +103,7 @@ type CtlMsg =
   | { t: "ctl-req" }
   | { t: "ctl-verify"; code: string }
   | { t: "ctl-grant" }
-  | { t: "ctl-deny" }
+  | { t: "ctl-deny"; why?: "wrong" | "busy" }
   | { t: "ctl-revoke" }
   | { t: "pt" | "pd" | "pu"; x: number; y: number }
   | { t: "wh"; x: number; y: number; dx: number; dy: number }
@@ -266,15 +266,13 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
           return;
         }
         case "ctl-verify": {
-          if (!cur.allowed || !cur.code || (cur.controlledBy && cur.controlledBy !== uid)) {
-            ctlSend(uid, { t: "ctl-deny" });
-            return;
-          }
-          if (String(msg.code ?? "") === cur.code) {
+          // Exclusive by design: exactly one controller holds the screen.
+          const d = ctlVerifyDecision(cur, uid, msg.code);
+          if (d === "grant") {
             ctlSend(uid, { t: "ctl-grant" });
             patchCtl({ controlledBy: uid });
           } else {
-            ctlSend(uid, { t: "ctl-deny" });
+            ctlSend(uid, { t: "ctl-deny", why: d === "busy" ? "busy" : "wrong" });
           }
           return;
         }
@@ -283,7 +281,11 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
           return;
         }
         case "ctl-deny": {
-          if (cur.requested === uid) patchCtl({ requested: null, notice: "room.ctlWrong" });
+          if (cur.requested === uid)
+            patchCtl({
+              requested: null,
+              notice: msg.why === "busy" ? "room.ctlBusy" : "room.ctlWrong",
+            });
           return;
         }
         case "ctl-revoke": {

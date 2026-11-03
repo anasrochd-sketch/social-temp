@@ -323,91 +323,111 @@ export function VoiceCaptions({
           {t("cap.title")}
         </h3>
 
-        <div className="grid gap-2 sm:grid-cols-3">
-          <label className="block text-xs font-medium text-cova-mute">
-            {t("cap.forMe")}
-            <select
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              className={selectCls}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {/* Listening: what I receive, and how. */}
+          <section
+            className="space-y-2.5 rounded-xl border border-cova-line bg-cova-bg/50 p-3"
+            aria-label={t("cap.listenTitle")}
+          >
+            <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-cova-mute">
+              <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("cap.listenTitle")}
+            </h4>
+            <label className="block text-xs font-medium text-cova-mute">
+              {t("cap.forMe")}
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                className={selectCls}
+              >
+                <option value="">{t("cap.interfaceLang")}</option>
+                {LANGS.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div
+              className="flex overflow-hidden rounded-lg border border-cova-line"
+              role="group"
+              aria-label={t("cap.mode")}
             >
-              <option value="">{t("cap.interfaceLang")}</option>
-              {LANGS.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
+              {(["text", "voice"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={autoDub === m}
+                  onClick={() => setAutoDub(m)}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    autoDub === m ? "bg-cova-ink text-white" : "bg-white hover:bg-cova-bg",
+                  )}
+                >
+                  {m === "voice" ? <Volume2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                  {m === "voice" ? t("cap.modeVoice") : t("cap.modeText")}
+                </button>
               ))}
-            </select>
-          </label>
-          <label className="block text-xs font-medium text-cova-mute">
-            {t("cap.speakLang")}
-            <select
-              value={srcLang}
-              onChange={(e) => setSrcLang(e.target.value)}
-              className={selectCls}
+            </div>
+          </section>
+
+          {/* Speaking: my language, my dub, the transcribe switch. */}
+          <section
+            className="space-y-2.5 rounded-xl border border-cova-line bg-cova-bg/50 p-3"
+            aria-label={t("cap.speakTitle")}
+          >
+            <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-cova-mute">
+              <Mic className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("cap.speakTitle")}
+            </h4>
+            <label className="block text-xs font-medium text-cova-mute">
+              {t("cap.speakLang")}
+              <select
+                value={srcLang}
+                onChange={(e) => setSrcLang(e.target.value)}
+                className={selectCls}
+              >
+                <option value="">{t("cap.interfaceLang")}</option>
+                {LANGS.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-cova-mute">
+              {t("cap.voiceOut")}
+              <select
+                value={voiceOut}
+                onChange={(e) => setVoiceOut(e.target.value)}
+                className={selectCls}
+              >
+                <option value="">{t("cap.voiceOutOff")}</option>
+                {LANGS.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              size="sm"
+              variant={listening ? "danger" : "secondary"}
+              className="w-full"
+              disabled={!supported}
+              onClick={() => (listening ? stop() : start())}
             >
-              <option value="">{t("cap.interfaceLang")}</option>
-              {LANGS.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-xs font-medium text-cova-mute">
-            {t("cap.voiceOut")}
-            <select
-              value={voiceOut}
-              onChange={(e) => setVoiceOut(e.target.value)}
-              className={selectCls}
-            >
-              <option value="">{t("cap.voiceOutOff")}</option>
-              {LANGS.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              {listening ? (
+                <MicOff className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Mic className="h-4 w-4" aria-hidden="true" />
+              )}
+              {listening ? t("cap.stop") : t("cap.start")}
+            </Button>
+          </section>
         </div>
 
         <p className="text-[11px] leading-snug text-cova-mute">{t("cap.dubHint")}</p>
-
-        <div className="flex items-center gap-2" role="group" aria-label={t("cap.mode")}>
-          <span className="text-xs font-medium text-cova-mute">{t("cap.mode")}</span>
-          <div className="ms-auto flex overflow-hidden rounded-lg border border-cova-line">
-            {(["text", "voice"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={autoDub === m}
-                onClick={() => setAutoDub(m)}
-                className={cn(
-                  "flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors",
-                  autoDub === m ? "bg-cova-ink text-white" : "bg-white hover:bg-cova-bg",
-                )}
-              >
-                {m === "voice" ? <Volume2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-                {m === "voice" ? t("cap.modeVoice") : t("cap.modeText")}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <Button
-          size="sm"
-          variant={listening ? "danger" : "secondary"}
-          className="w-full"
-          disabled={!supported}
-          onClick={() => (listening ? stop() : start())}
-        >
-          {listening ? (
-            <MicOff className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Mic className="h-4 w-4" aria-hidden="true" />
-          )}
-          {listening ? t("cap.stop") : t("cap.start")}
-        </Button>
 
         {notice && (
           <p className="rounded-lg bg-cova-pale px-3 py-2 text-xs" role="status">

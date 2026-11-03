@@ -111,11 +111,6 @@ export function ScreenShareOverlay({
                 ? t("room.sharingBy", { name: nameOf(first) })
                 : t("room.share")}
           </h3>
-          {sharing && ctl.allowed && (
-            <Badge tone="soft">
-              {t("room.ctlCode")}: <span className="font-mono">{ctl.code}</span>
-            </Badge>
-          )}
           {sharing && ctl.controlledBy && (
             <Badge tone="soft">{t("room.ctlBy", { name: nameOf(ctl.controlledBy) })}</Badge>
           )}
@@ -147,6 +142,20 @@ export function ScreenShareOverlay({
         <p className="text-[11px] text-cova-mute">
           {sharing && ctl.allowed ? t("room.ctlCodeHint") : null}
         </p>
+
+        {/* The 6-digit code, unmissable: the controller reads it off the
+            shared screen, so it must be big on the sharer's page. */}
+        {sharing && ctl.allowed && ctl.code && (
+          <div
+            className="flex items-center justify-center gap-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5"
+            data-testid="ctl-code"
+          >
+            <span className="text-sm font-semibold text-amber-900">{t("room.ctlCode")}</span>
+            <span className="font-mono text-3xl font-bold tracking-[0.35em] text-amber-950">
+              {ctl.code}
+            </span>
+          </div>
+        )}
 
         {ctl.notice && (
           <p className="rounded-lg bg-cova-pale px-3 py-2 text-xs" role="status">
