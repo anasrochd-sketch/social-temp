@@ -12,9 +12,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * Screen-share strip for voice rooms: shows the live shared screen, the
- * remote-control handshake (verification code on the host, code field on the
- * viewer) and, while controlling, captures pointer/keyboard events on the
- * video and forwards them as normalized coordinates.
+ * remote-control handshake (verification code on the host, a BIG always-
+ * visible code field on the viewer) and, while controlling, captures
+ * pointer/keyboard events on the video and forwards them as normalized
+ * coordinates. Exactly one viewer may hold the control at a time.
  */
 export function ScreenShareOverlay({
   members,
@@ -60,6 +61,10 @@ export function ScreenShareOverlay({
   if (!first && !sharing && !ctl.notice) return null;
 
   const controlling = first !== null && ctl.controlling === first;
+  /** Someone holds the sharer's screen — and it is not me. */
+  const takenByOther = first !== null && !!ctl.remoteCtlBy && !controlling;
+  /** The sharer published a code and I may type it right now. */
+  const canEnter = first !== null && !sharing && !controlling && ctl.remoteAllowed;
   /** Null-safe: notices can render with no active sharer at all. */
   const nameOf = (uid: string | null) => (uid ? members[uid] ?? uid.slice(0, 8) : "?");
 
@@ -126,16 +131,6 @@ export function ScreenShareOverlay({
                 {t("room.ctlStop")}
               </Button>
             )}
-            {!sharing && first && !controlling && ctl.requested !== first && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => ctlActions.requestControl(first)}
-              >
-                <MousePointerClick className="h-3.5 w-3.5" aria-hidden="true" />
-                {t("room.ctlRequest")}
-              </Button>
-            )}
           </span>
         </div>
 
@@ -163,38 +158,48 @@ export function ScreenShareOverlay({
           </p>
         )}
 
-        {!sharing && first && ctl.requested === first && (
+        {/* Viewer side: the code field is ALWAYS here while the sharer allows
+            control — no hidden two-step, nobody has to hunt for a button. */}
+        {canEnter && !takenByOther && (
           <form
-            className="flex items-center gap-2"
+            className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3"
+            data-testid="ctl-code-form"
             onSubmit={(e) => {
               e.preventDefault();
-              ctlActions.submitCode(codeDraft);
+              if (!first) return;
+              ctlActions.requestControl(first);
+              ctlActions.submitCode(codeDraft, first);
             }}
           >
-            <label className="flex-1 text-xs font-medium text-cova-mute">
-              {t("room.ctlEnter", { name: nameOf(first) })}
+            <p className="flex items-center gap-2 text-sm font-bold text-amber-900">
+              <MousePointerClick className="h-4 w-4" aria-hidden="true" />
+              {t("room.ctlEnterTitle")}
+            </p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              {t("room.ctlWatch", { name: nameOf(first) })}
+            </p>
+            <div className="mt-2 flex items-center gap-2">
               <input
                 value={codeDraft}
                 onChange={(e) => setCodeDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 inputMode="numeric"
                 autoComplete="off"
-                className="mt-1 h-9 w-full rounded-lg border border-cova-line bg-white px-2 font-mono text-sm tracking-widest"
+                aria-label={t("room.ctlEnterTitle")}
+                className="h-11 min-w-0 flex-1 rounded-lg border-2 border-amber-300 bg-white px-3 text-center font-mono text-xl font-bold tracking-[0.4em]"
                 placeholder="123456"
               />
-            </label>
-            <Button size="sm" type="submit" className="shrink-0 self-end">
-              {t("room.send")}
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              variant="ghost"
-              className="shrink-0 self-end"
-              onClick={ctlActions.cancelRequest}
-            >
-              {t("room.cancel")}
-            </Button>
+              <Button type="submit" size="lg" className="shrink-0">
+                {t("room.send")}
+              </Button>
+            </div>
           </form>
+        )}
+
+        {/* Exclusive: someone else already holds the control. */}
+        {takenByOther && (
+          <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900" role="status">
+            {t("room.ctlHeldBy", { name: nameOf(ctl.remoteCtlBy) })}
+          </p>
         )}
 
         {stream && (

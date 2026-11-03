@@ -75,6 +75,14 @@ interface RoomRuntimeValue {
   screenStream: MediaStream | null;
   /** uid -> MediaStream of a room-mate's live shared screen. */
   remoteVideos: Record<string, MediaStream>;
+  /** Camera (mine + the room's), separate from screen sharing. */
+  camOn: boolean;
+  camStream: MediaStream | null;
+  camFacing: "user" | "environment";
+  toggleCam: () => void;
+  flipCam: () => void;
+  remoteCams: Record<string, MediaStream>;
+  remoteCamFacing: Record<string, "user" | "environment">;
   /** Remote-control session (verification code, who controls whom). */
   ctl: RoomVoiceCtl;
   ctlActions: RoomVoiceCtlActions;
@@ -143,6 +151,13 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
     shareNotice,
     screenStream,
     remoteVideos,
+    camOn,
+    camStream,
+    camFacing,
+    toggleCam,
+    flipCam,
+    remoteCams,
+    remoteCamFacing,
     ctl,
     ctlActions,
   } = useVoiceMesh({
@@ -221,6 +236,13 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       shareNotice,
       screenStream,
       remoteVideos,
+      camOn,
+      camStream,
+      camFacing,
+      toggleCam,
+      flipCam,
+      remoteCams,
+      remoteCamFacing,
       ctl,
       ctlActions,
       setPeerVolume,
@@ -245,6 +267,13 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       shareNotice,
       screenStream,
       remoteVideos,
+      camOn,
+      camStream,
+      camFacing,
+      toggleCam,
+      flipCam,
+      remoteCams,
+      remoteCamFacing,
       ctl,
       ctlActions,
       setPeerVolume,

@@ -54,6 +54,8 @@ interface Peer {
   /** Pre-created sendrecv senders: late mic / screen tracks reuse them. */
   audioTransceiver: RTCRtpTransceiver;
   videoTransceiver: RTCRtpTransceiver;
+  /** Second video m-line, reserved for the camera (screen share uses the first). */
+  camTransceiver: RTCRtpTransceiver;
   ctl: RTCDataChannel | null;
   analyser: AnalyserNode | null;
   pendingIce: RTCIceCandidateInit[];
@@ -78,6 +80,12 @@ export interface RoomVoiceCtl {
   controlling: string | null;
   /** Viewer: uid I asked for (waiting to type the code). */
   requested: string | null;
+  /** Viewer: the sharer allowed control (broadcast over the data channel). */
+  remoteAllowed: boolean;
+  /** Viewer: the code the sharer published — the form shows only when set. */
+  remoteCode: string | null;
+  /** Viewer: uid of whoever controls the sharer's screen right now. */
+  remoteCtlBy: string | null;
   /** i18n key of the last problem / status, shown by the overlay. */
   notice: string | null;
 }
@@ -87,7 +95,7 @@ export interface RoomVoiceCtlActions {
   enableControl: () => void;
   disableControl: () => void;
   requestControl: (uid: string) => void;
-  submitCode: (code: string) => void;
+  submitCode: (code: string, uid: string) => void;
   cancelRequest: () => void;
   clearNotice: () => void;
   /** Viewer-side input injection toward the peer being controlled. */
@@ -103,8 +111,10 @@ type CtlMsg =
   | { t: "ctl-req" }
   | { t: "ctl-verify"; code: string }
   | { t: "ctl-grant" }
-  | { t: "ctl-deny"; why?: "wrong" | "busy" }
+  | { t: "ctl-deny"; why?: "wrong" | "busy" | "off" }
   | { t: "ctl-revoke" }
+  | { t: "ctl-state"; allowed: boolean; code: string | null; controlledBy: string | null }
+  | { t: "cam"; on: boolean; facing: "user" | "environment" }
   | { t: "pt" | "pd" | "pu"; x: number; y: number }
   | { t: "wh"; x: number; y: number; dx: number; dy: number }
   | { t: "kd" | "ku"; key: string };
@@ -115,6 +125,9 @@ const EMPTY_CTL: RoomVoiceCtl = {
   controlledBy: null,
   controlling: null,
   requested: null,
+  remoteAllowed: false,
+  remoteCode: null,
+  remoteCtlBy: null,
   notice: null,
 };
 
@@ -134,12 +147,18 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remoteVideos, setRemoteVideos] = useState<Record<string, MediaStream>>({});
+  const [camStream, setCamStream] = useState<MediaStream | null>(null);
+  const [camFacing, setCamFacing] = useState<"user" | "environment">("user");
+  const [remoteCams, setRemoteCams] = useState<Record<string, MediaStream>>({});
+  const [remoteCamFacing, setRemoteCamFacing] = useState<Record<string, "user" | "environment">>({});
   const [ctl, setCtl] = useState<RoomVoiceCtl>(EMPTY_CTL);
 
   const stream = useRef<MediaStream | null>(null);
   const ctx = useRef<AudioContext | null>(null);
   const peers = useRef(new Map<string, Peer>());
   const screenTrack = useRef<MediaStreamTrack | null>(null);
+  const camTrackRef = useRef<MediaStreamTrack | null>(null);
+  const camFacingRef = useRef<"user" | "environment">("user");
   const retryRef = useRef<(() => void) | null>(null);
   const deafRef = useRef(false);
   const ctlRef = useRef<RoomVoiceCtl>(EMPTY_CTL);
@@ -245,6 +264,19 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
     [ctlSend],
   );
 
+  /** Host: publish allowed/code/controlledBy to every peer (data channels). */
+  const broadcastCtlState = useCallback(
+    (state: { allowed: boolean; code: string | null; controlledBy: string | null }) => {
+      ctlBroadcast({
+        t: "ctl-state",
+        allowed: state.allowed,
+        code: state.code,
+        controlledBy: state.controlledBy,
+      });
+    },
+    [ctlBroadcast],
+  );
+
   const handleCtl = useCallback(
     (msg: CtlMsg, uid: string) => {
       const cur = ctlRef.current;
@@ -271,9 +303,34 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
           if (d === "grant") {
             ctlSend(uid, { t: "ctl-grant" });
             patchCtl({ controlledBy: uid });
+            // Everyone must see the seat is taken, not just the host.
+            broadcastCtlState({ ...cur, controlledBy: uid });
           } else {
-            ctlSend(uid, { t: "ctl-deny", why: d === "busy" ? "busy" : "wrong" });
+            ctlSend(uid, {
+              t: "ctl-deny",
+              why: d === "busy" ? "busy" : d === "off" ? "off" : "wrong",
+            });
           }
+          return;
+        }
+        case "ctl-state": {
+          // The sharer publishes allowed / code / who controls, so every
+          // viewer sees the code-entry form without asking first.
+          patchCtl({
+            remoteAllowed: !!msg.allowed,
+            remoteCode: msg.code ?? null,
+            remoteCtlBy: msg.controlledBy ?? null,
+          });
+          return;
+        }
+        case "cam": {
+          setRemoteCamFacing((prev) => {
+            if (msg.on) return { ...prev, [uid]: msg.facing };
+            if (!(uid in prev)) return prev;
+            const next = { ...prev };
+            delete next[uid];
+            return next;
+          });
           return;
         }
         case "ctl-grant": {
@@ -325,7 +382,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
           return;
       }
     },
-    [ctlSend, patchCtl],
+    [ctlSend, patchCtl, ctlBroadcast, broadcastCtlState],
   );
 
   const wireCtl = useCallback(
@@ -344,16 +401,19 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
         if (p.ctl === ch) p.ctl = null;
         const cur = ctlRef.current;
         if (cur.controlling === uid || cur.requested === uid || cur.controlledBy === uid) {
-          patchCtl({
+          const next = {
             controlling: cur.controlling === uid ? null : cur.controlling,
             requested: cur.requested === uid ? null : cur.requested,
             controlledBy: cur.controlledBy === uid ? null : cur.controlledBy,
             notice: cur.controlling === uid ? "room.ctlRevoked" : cur.notice,
-          });
+          };
+          patchCtl(next);
+          // I was the host and my controller vanished: re-publish the seat.
+          if (cur.controlledBy === uid) broadcastCtlState({ ...cur, controlledBy: null });
         }
       };
     },
-    [handleCtl, patchCtl],
+    [handleCtl, patchCtl, broadcastCtlState],
   );
 
   /* ------------------------------ peers ------------------------------ */
@@ -363,6 +423,17 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
   }, []);
   const dropVideo = useCallback((uid: string) => {
     setRemoteVideos((prev) => {
+      if (!(uid in prev)) return prev;
+      const next = { ...prev };
+      delete next[uid];
+      return next;
+    });
+  }, []);
+  const addCam = useCallback((uid: string, s: MediaStream) => {
+    setRemoteCams((prev) => (prev[uid] === s ? prev : { ...prev, [uid]: s }));
+  }, []);
+  const dropCam = useCallback((uid: string) => {
+    setRemoteCams((prev) => {
       if (!(uid in prev)) return prev;
       const next = { ...prev };
       delete next[uid];
@@ -387,6 +458,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
         audio,
         audioTransceiver: pc.addTransceiver("audio", { direction: "sendrecv" }),
         videoTransceiver: pc.addTransceiver("video", { direction: "sendrecv" }),
+        camTransceiver: pc.addTransceiver("video", { direction: "sendrecv" }),
         ctl: null,
         analyser: null,
         pendingIce: [],
@@ -440,11 +512,19 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
           }
           return;
         }
-        // Video = someone is sharing a screen with the room.
-        addVideo(uid, remote);
-        track.onended = () => dropVideo(uid);
-        track.onmute = () => dropVideo(uid);
-        track.onunmute = () => addVideo(uid, remote);
+        // Two video m-lines exist: the first carries a shared screen, the
+        // second a camera. The transceiver object is the unambiguous label.
+        if (e.transceiver === peer.camTransceiver) {
+          addCam(uid, remote);
+          track.onended = () => dropCam(uid);
+          track.onmute = () => dropCam(uid);
+          track.onunmute = () => addCam(uid, remote);
+        } else {
+          addVideo(uid, remote);
+          track.onended = () => dropVideo(uid);
+          track.onmute = () => dropVideo(uid);
+          track.onunmute = () => addVideo(uid, remote);
+        }
       };
 
       pc.onconnectionstatechange = () => {
@@ -534,10 +614,13 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = null;
       mineRef.current = null;
-      // Leaving the room also drops sharing / control / remote-video state.
+      // Leaving the room also drops sharing / camera / control / remote state.
       const sTrack = screenTrack.current;
       screenTrack.current = null;
       if (sTrack) sTrack.stop();
+      const cTrack = camTrackRef.current;
+      camTrackRef.current = null;
+      if (cTrack) cTrack.stop();
       peerMap.forEach((p) => {
         p.pc.close();
         p.audio.srcObject = null;
@@ -549,6 +632,11 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       setSharing(false);
       setShareNotice(null);
       setRemoteVideos({});
+      setCamStream(null);
+      setCamFacing("user");
+      camFacingRef.current = "user";
+      setRemoteCams({});
+      setRemoteCamFacing({});
       ctlRef.current = EMPTY_CTL;
       setCtl(EMPTY_CTL);
     };
@@ -580,7 +668,14 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       }
       if (screenTrack.current && p) {
         try {
-          p.pc.addTrack(screenTrack.current, new MediaStream([screenTrack.current]));
+          p.videoTransceiver.sender.replaceTrack(screenTrack.current);
+        } catch {
+          /* peer closing */
+        }
+      }
+      if (camTrackRef.current && p) {
+        try {
+          p.camTransceiver.sender.replaceTrack(camTrackRef.current);
         } catch {
           /* peer closing */
         }
@@ -649,8 +744,8 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
     setScreenStream(null);
     if (track) track.stop();
     peers.current.forEach((p) => {
-      const sender = p.pc.getSenders().find((s) => s.track?.kind === "video");
-      if (sender) {
+      const sender = p.videoTransceiver.sender; // screen m-line only, not the camera
+      if (sender.track) {
         try {
           p.pc.removeTrack(sender); // remote track ends -> overlay disappears
         } catch {
@@ -663,9 +758,11 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
     // Sharing stopped -> remote control must stop with it.
     const cur = ctlRef.current;
     if (cur.controlledBy) ctlSend(cur.controlledBy, { t: "ctl-revoke" });
-    if (cur.allowed || cur.controlledBy)
+    if (cur.allowed || cur.controlledBy) {
       patchCtl({ allowed: false, code: null, controlledBy: null });
-  }, [ctlBroadcast, ctlSend, patchCtl]);
+      broadcastCtlState({ allowed: false, code: null, controlledBy: null });
+    }
+  }, [ctlBroadcast, ctlSend, patchCtl, broadcastCtlState]);
 
   const toggleShare = useCallback(async () => {
     if (sharing) {
@@ -684,7 +781,8 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       setScreenStream(screen);
       peers.current.forEach((p) => {
         try {
-          p.pc.addTrack(track, screen);
+          // Explicit screen m-line: the camera has its own transceiver.
+          p.videoTransceiver.sender.replaceTrack(track);
         } catch {
           /* peer closing */
         }
@@ -699,6 +797,93 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
     }
   }, [ctlBroadcast, sharing, stopShare]);
 
+  /* ----------------------------- camera ----------------------------- */
+
+  const stopCam = useCallback(() => {
+    const track = camTrackRef.current;
+    camTrackRef.current = null;
+    setCamStream(null);
+    if (track) track.stop();
+    peers.current.forEach((p) => {
+      try {
+        p.camTransceiver.sender.replaceTrack(null); // remote track mutes -> tile disappears
+      } catch {
+        /* peer closing */
+      }
+    });
+    ctlBroadcast({ t: "cam", on: false, facing: camFacingRef.current });
+  }, [ctlBroadcast]);
+
+  /** Opens my camera and streams it to the whole room (screen share keeps working). */
+  const toggleCam = useCallback(async () => {
+    if (camTrackRef.current) {
+      stopCam();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setShareNotice("room.camDenied");
+      return;
+    }
+    try {
+      const cam = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: camFacingRef.current, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      const track = cam.getVideoTracks()[0] ?? null;
+      if (!track) {
+        cam.getTracks().forEach((tr) => tr.stop());
+        setShareNotice("room.camDenied");
+        return;
+      }
+      camTrackRef.current = track;
+      setCamStream(cam);
+      setShareNotice(null);
+      peers.current.forEach((p) => {
+        try {
+          p.camTransceiver.sender.replaceTrack(track);
+        } catch {
+          /* peer closing */
+        }
+      });
+      ctlBroadcast({ t: "cam", on: true, facing: camFacingRef.current });
+    } catch {
+      setShareNotice("room.camDenied");
+    }
+  }, [ctlBroadcast, stopCam]);
+
+  /** Front <-> back camera (phones): re-opens the device and swaps the track. */
+  const flipCam = useCallback(async () => {
+    if (!camTrackRef.current) return;
+    const next = camFacingRef.current === "user" ? "environment" : "user";
+    try {
+      const cam = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: next }, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      const track = cam.getVideoTracks()[0] ?? null;
+      if (!track) {
+        cam.getTracks().forEach((tr) => tr.stop());
+        return;
+      }
+      camTrackRef.current?.stop();
+      camTrackRef.current = track;
+      camFacingRef.current = next;
+      setCamFacing(next);
+      setCamStream(cam);
+      peers.current.forEach((p) => {
+        try {
+          p.camTransceiver.sender.replaceTrack(track);
+        } catch {
+          /* peer closing */
+        }
+      });
+      ctlBroadcast({ t: "cam", on: true, facing: next });
+    } catch {
+      // One-camera devices (most laptops) cannot flip — keep the current view.
+      setShareNotice("room.camFlipFail");
+    }
+  }, [ctlBroadcast]);
+
   /* ----------------------- remote control API ----------------------- */
 
   const ctlActions: RoomVoiceCtlActions = {
@@ -708,13 +893,21 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
         patchCtl({ notice: "room.ctlNeedShare" });
         return;
       }
-      patchCtl({ allowed: true, code: String(Math.floor(100000 + Math.random() * 900000)) });
+      const next = {
+        allowed: true,
+        code: String(Math.floor(100000 + Math.random() * 900000)),
+        controlledBy: ctlRef.current.controlledBy,
+      };
+      patchCtl(next);
+      // Publish so every viewer sees the code-entry form immediately.
+      broadcastCtlState(next);
     },
     /** Host: stop allowing control and kick the controller out. */
     disableControl: () => {
       const cur = ctlRef.current;
       if (cur.controlledBy) ctlSend(cur.controlledBy, { t: "ctl-revoke" });
       patchCtl({ allowed: false, code: null, controlledBy: null });
+      broadcastCtlState({ allowed: false, code: null, controlledBy: null });
     },
     /** Viewer: ask to control; the host verifies the code shown on screen. */
     requestControl: (uid: string) => {
@@ -726,12 +919,12 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       ctlSend(uid, { t: "ctl-req" });
       patchCtl({ requested: uid, notice: null });
     },
-    submitCode: (code: string) => {
-      const target = ctlRef.current.requested;
-      if (!target) return;
+    /** Viewer: send the 6-digit code to the named sharer (one controller max). */
+    submitCode: (code: string, uid: string) => {
       const clean = code.replace(/\D/g, "").slice(0, 6);
       if (clean.length !== 6) return;
-      ctlSend(target, { t: "ctl-verify", code: clean });
+      patchCtl({ requested: uid, notice: null });
+      ctlSend(uid, { t: "ctl-verify", code: clean });
     },
     cancelRequest: () => patchCtl({ requested: null }),
     clearNotice: () => {
@@ -788,6 +981,13 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
     shareNotice,
     screenStream,
     remoteVideos,
+    camOn: !!camStream,
+    camStream,
+    camFacing,
+    toggleCam,
+    flipCam,
+    remoteCams,
+    remoteCamFacing,
     ctl,
     ctlActions,
   };

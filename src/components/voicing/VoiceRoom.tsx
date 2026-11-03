@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AudioLines,
   DoorClosed,
   Mic,
   MicOff,
   MonitorUp,
   MousePointerClick,
   PhoneOff,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -16,12 +18,14 @@ import { VoiceCaptions } from "@/components/voicing/VoiceCaptions";
 import { JoinGate } from "@/components/spaces/JoinGate";
 import { RoomToolbar } from "@/components/spaces/RoomToolbar";
 import { AvatarStage } from "@/components/voicing/AvatarStage";
+import { CameraStrip } from "@/components/voicing/CameraStrip";
 import { ParticipantsPanel } from "@/components/voicing/ParticipantsPanel";
 import { ScreenShareOverlay } from "@/components/voicing/ScreenShareOverlay";
 import { useRoomRuntime } from "@/components/voicing/RoomRuntime";
 import { useCaptionView } from "@/components/voicing/useCaptionView";
 import { readSavedAvatar, readSavedSide } from "@/components/voicing/avatars";
 import { useS } from "@/i18n/spaces";
+import { findLang } from "@/lib/langs";
 import { api, type SpaceView } from "@/lib/spaces-client";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +45,10 @@ export function VoiceRoom({ code }: { code: string }) {
   const { view, notFound, ended } = runtime;
   const [captionsOpen, setCaptionsOpen] = useState(true);
   const [missing, setMissing] = useState(false);
+  /** The دبلجة button in the control bar mirrors the captions panel engine. */
+  const [dub, setDub] = useState({ on: false, lang: "" });
+  const [dubToggleN, setDubToggleN] = useState(0);
+  const [dubPick, setDubPick] = useState(false);
 
   const mine = runtime.code === code;
   const inRoom = mine && runtime.inRoom;
@@ -89,6 +97,22 @@ export function VoiceRoom({ code }: { code: string }) {
 
   // Speech bubbles under the characters, in the viewer's chosen language.
   const bubbles = useCaptionView(inRoom && view ? view.captions : [], uid);
+
+  /** Control-bar دبلجة: toggle when a language is picked, else open the panel. */
+  const dubClick = () => {
+    if (dub.on || dub.lang) {
+      setDubToggleN((n) => n + 1);
+    } else {
+      setDubPick(true);
+      setCaptionsOpen(true);
+    }
+  };
+  // The highlight fades by itself so it never lingers.
+  useEffect(() => {
+    if (!dubPick) return;
+    const id = window.setTimeout(() => setDubPick(false), 8000);
+    return () => window.clearTimeout(id);
+  }, [dubPick]);
 
   const leave = async () => {
     await runtime.leave();
@@ -202,7 +226,17 @@ export function VoiceRoom({ code }: { code: string }) {
             joinedAt: m.joinedAt,
           }))}
         />
-        {/* Bottom control bar: mute / share / remote / leave, side by side. */}
+        {/* Floating camera tiles over the stage (mine + everyone else's). */}
+        <CameraStrip
+          members={membersName}
+          remoteCams={runtime.remoteCams}
+          remoteCamFacing={runtime.remoteCamFacing}
+          myCam={runtime.camStream}
+          camFacing={runtime.camFacing}
+          onFlip={() => void runtime.flipCam()}
+          onStop={() => void runtime.toggleCam()}
+        />
+        {/* Bottom control bar: mute / dubbing / share / camera / remote / leave. */}
         <div className="absolute inset-x-0 bottom-4 flex flex-wrap items-center justify-center gap-2 px-3">
           <Button
             size="lg"
@@ -226,12 +260,33 @@ export function VoiceRoom({ code }: { code: string }) {
           </Button>
           <Button
             size="lg"
+            variant={dub.on ? "primary" : "secondary"}
+            onClick={dubClick}
+            aria-pressed={dub.on}
+            data-testid="dub-button"
+          >
+            <AudioLines className="h-5 w-5" aria-hidden="true" />
+            {dub.on
+              ? `${t("room.dub")} · ${findLang(dub.lang)?.label ?? ""}`
+              : t("room.dub")}
+          </Button>
+          <Button
+            size="lg"
             variant={runtime.sharing ? "danger" : "secondary"}
             onClick={() => void runtime.toggleShare()}
             aria-pressed={runtime.sharing}
           >
             <MonitorUp className="h-5 w-5" aria-hidden="true" />
             {runtime.sharing ? t("room.shareStop") : t("room.share")}
+          </Button>
+          <Button
+            size="lg"
+            variant={runtime.camOn ? "primary" : "secondary"}
+            onClick={() => void runtime.toggleCam()}
+            aria-pressed={runtime.camOn}
+          >
+            <Video className="h-5 w-5" aria-hidden="true" />
+            {runtime.camOn ? t("room.camStop") : t("room.cam")}
           </Button>
           <Button
             size="lg"
@@ -254,6 +309,11 @@ export function VoiceRoom({ code }: { code: string }) {
           {t("room.micOff")}
         </p>
       )}
+      {dubPick && !dub.on && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
+          {t("room.dubPick")}
+        </p>
+      )}
       {runtime.shareNotice && (
         <p className="rounded-lg bg-cova-pale px-3 py-2 text-sm" role="status">
           {t(runtime.shareNotice as Parameters<typeof t>[0])}
@@ -269,6 +329,12 @@ export function VoiceRoom({ code }: { code: string }) {
             send={runtime.send}
             expanded={captionsOpen}
             setPeerVolume={runtime.setPeerVolume}
+            onDubChange={(on, lang) => {
+              setDub({ on, lang });
+              if (on) setDubPick(false);
+            }}
+            dubToggleN={dubToggleN}
+            dubHighlight={dubPick}
           />
         </div>
         <div className={cn(!captionsOpen && "lg:col-span-2")}>

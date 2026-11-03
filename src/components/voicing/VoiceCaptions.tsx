@@ -13,6 +13,7 @@ import {
   translate,
   useTargetLang,
 } from "@/components/voicing/useCaptionView";
+import { dubIsOn, shouldRestartRecognition } from "@/components/voicing/dubModel";
 import type { Caption } from "@/server/spaces-store";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +91,9 @@ export function VoiceCaptions({
   send,
   expanded,
   setPeerVolume,
+  onDubChange,
+  dubToggleN,
+  dubHighlight,
 }: {
   captions: Caption[];
   meUid: string;
@@ -97,6 +101,12 @@ export function VoiceCaptions({
   /** Panel visibility only — translation/dubbing stay active when false. */
   expanded: boolean;
   setPeerVolume: (uid: string, v: number) => void;
+  /** Tells the control bar whether the دبلجة button should read on/off. */
+  onDubChange?: (on: boolean, langCode: string) => void;
+  /** Bumped by the control bar's دبلجة button to start/stop dubbing. */
+  dubToggleN?: number;
+  /** Briefly highlights the speaking box (the bar sent the user here). */
+  dubHighlight?: boolean;
 }) {
   const t = useS();
   const { locale } = useI18n();
@@ -263,6 +273,38 @@ export function VoiceCaptions({
 
   useEffect(() => () => stop(), [stop]);
 
+  // Changing "I speak" while the recognition runs must actually change the
+  // language — restart the session so the new language is really recognized.
+  const prevSrcRef = useRef(srcLang);
+  useEffect(() => {
+    const prev = prevSrcRef.current;
+    prevSrcRef.current = srcLang;
+    if (!shouldRestartRecognition(prev, srcLang, wantRef.current)) return;
+    stop();
+    const id = window.setTimeout(() => start(), 350);
+    return () => window.clearTimeout(id);
+  }, [srcLang, stop, start]);
+
+  // Report the دبلجة button state up to the control bar.
+  const onDubRef = useRef(onDubChange);
+  useEffect(() => {
+    onDubRef.current = onDubChange;
+  });
+  const dubOn = dubIsOn(listening, voiceOut);
+  useEffect(() => {
+    onDubRef.current?.(dubOn, findLang(voiceOut)?.code ?? "");
+  }, [dubOn, voiceOut]);
+
+  // The control bar's دبلجة button: start when a language is picked, stop otherwise.
+  const toggleNRef = useRef(0);
+  useEffect(() => {
+    const n = dubToggleN ?? 0;
+    if (n === toggleNRef.current) return;
+    toggleNRef.current = n;
+    if (wantRef.current) stop();
+    else if (voiceOutRef.current) start();
+  }, [dubToggleN, stop, start]);
+
   // "Translate for me" target (a translation code).
   const targetCode = target || locale;
   const targetTag = findLang(targetCode)?.tag ?? localeTag;
@@ -373,7 +415,12 @@ export function VoiceCaptions({
 
           {/* Speaking: my language, my dub, the transcribe switch. */}
           <section
-            className="space-y-2.5 rounded-xl border border-cova-line bg-cova-bg/50 p-3"
+            className={cn(
+              "space-y-2.5 rounded-xl border p-3 transition-colors",
+              dubHighlight
+                ? "border-amber-400 bg-amber-50 ring-2 ring-amber-300"
+                : "border-cova-line bg-cova-bg/50",
+            )}
             aria-label={t("cap.speakTitle")}
           >
             <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-cova-mute">
@@ -410,6 +457,19 @@ export function VoiceCaptions({
                 ))}
               </select>
             </label>
+            {dubOn && (
+              <p
+                className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800"
+                role="status"
+                data-testid="dub-on"
+              >
+                <span>{t("cap.dubOn", { lang: findLang(voiceOut)?.label ?? voiceOut })}</span>
+                <span className="relative flex h-2 w-2" aria-hidden="true">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+              </p>
+            )}
             <Button
               size="sm"
               variant={listening ? "danger" : "secondary"}

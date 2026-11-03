@@ -79,14 +79,16 @@ export function normalizedVideoPoint(
  * Pure decision for a control-code verification, used by the voice mesh and
  * covered by scripts/test-dubbing-logic.ts. Exclusive on purpose: exactly ONE
  * controller may hold the screen — a second correct code is rejected with
- * "busy" while someone is already controlling.
+ * "busy" while someone is already controlling, and a code sent before the
+ * sharer enabled control is rejected with "off" (never "wrong", so the viewer
+ * is not told their code is bad when the feature is simply off).
  */
 export function ctlVerifyDecision(
   cur: { allowed: boolean; code: string | null; controlledBy: string | null },
   uid: string,
   code: unknown,
-): "grant" | "busy" | "wrong" {
-  if (!cur.allowed || !cur.code) return "wrong";
+): "grant" | "busy" | "off" | "wrong" {
+  if (!cur.allowed || !cur.code) return "off";
   if (cur.controlledBy && cur.controlledBy !== uid) return "busy";
   return String(code ?? "") === cur.code ? "grant" : "wrong";
 }

@@ -103,7 +103,8 @@ const en = {
   "cap.hint": "Turn on transcription and everyone reads what you say in their own language.",
   "cap.start": "Transcribe my speech",
   "cap.stop": "Stop transcription",
-  "cap.empty": "No captions yet. Spoken sentences appear here translated.",
+  "cap.empty":
+    "No one has spoken yet. When someone talks, their words appear here — translated into your language.",
   "cap.unsupported": "This browser cannot transcribe speech. Try Chrome or Edge.",
   "cap.denied": "Microphone access is blocked — allow it to transcribe.",
   "cap.you": "You",
@@ -149,11 +150,26 @@ const en = {
   "room.ctlBy": "{name} is controlling your screen",
   "room.sharingBy": "{name} is sharing a screen",
   "room.sharingYou": "You are sharing your screen",
+  "room.dub": "Dubbing",
+  "room.dubPick":
+    "Pick the dubbing language in the translation panel below (Speaking & dubbing), then press the Dubbing button.",
+  "room.cam": "Camera",
+  "room.camStop": "Stop camera",
+  "room.camFlip": "Flip camera",
+  "room.camYou": "You",
+  "room.camBack": "Back camera",
+  "room.camDenied": "Camera access was denied or is unavailable in this browser.",
+  "room.camFlipFail": "Could not switch the camera — this device may have only one.",
+  "room.ctlEnterTitle": "Enter the control code",
+  "room.ctlWatch": "{name} allows control — type the 6-digit code they gave you.",
+  "room.ctlHeldBy": "{name} is controlling right now — wait for your turn.",
+  "room.ctlOff": "The screen owner has not enabled control yet.",
   "cap.speakLang": "I speak",
   "cap.listenTitle": "Listening",
   "cap.speakTitle": "Speaking & dubbing",
   "cap.dubHint":
-    "Speak: pick your language and a dub language, then transcribe — the room hears you dubbed. Listen: pick a language and others' lines arrive in it, read aloud for you alone in auto-voice mode.",
+    "Dubbing: pick a language under “Dub my voice into” and press the Dubbing button (in the bar or here) — the room hears you in that language, and you see your lines translated below your character. Listening: choose “Translate for me”; auto-voice reads others' lines to you alone.",
+  "cap.dubOn": "Dubbing on → {lang}",
 } as const;
 export type SKey = keyof typeof en;
 
@@ -258,7 +274,8 @@ const fr: Record<SKey, string> = {
   "cap.hint": "Activez la transcription et chacun lit ce que vous dites dans sa langue.",
   "cap.start": "Transcrire ma voix",
   "cap.stop": "Arrêter la transcription",
-  "cap.empty": "Aucune légende pour l'instant. Les phrases prononcées apparaîtront ici traduites.",
+  "cap.empty":
+    "Personne n'a encore parlé. Dès que quelqu'un parle, ses mots apparaissent ici traduits dans votre langue.",
   "cap.unsupported": "Ce navigateur ne peut pas transcrire la voix. Essayez Chrome ou Edge.",
   "cap.denied": "Accès au micro refusé — autorisez-le pour transcrire.",
   "cap.you": "Vous",
@@ -304,11 +321,26 @@ const fr: Record<SKey, string> = {
   "room.ctlBy": "{name} contrôle votre écran",
   "room.sharingBy": "{name} partage un écran",
   "room.sharingYou": "Vous partagez votre écran",
+  "room.dub": "Doublage",
+  "room.dubPick":
+    "Choisissez la langue de doublage dans le panneau de traduction ci-dessous (Parole et doublage), puis appuyez sur le bouton Doublage.",
+  "room.cam": "Caméra",
+  "room.camStop": "Arrêter la caméra",
+  "room.camFlip": "Pivoter la caméra",
+  "room.camYou": "Vous",
+  "room.camBack": "Caméra arrière",
+  "room.camDenied": "L'accès à la caméra a été refusé ou n'est pas disponible dans ce navigateur.",
+  "room.camFlipFail": "Impossible de changer de caméra — cet appareil n'en a peut-être qu'une.",
+  "room.ctlEnterTitle": "Saisir le code de contrôle",
+  "room.ctlWatch": "{name} autorise le contrôle — tapez le code à 6 chiffres qu'il vous a donné.",
+  "room.ctlHeldBy": "{name} contrôle en ce moment — attendez votre tour.",
+  "room.ctlOff": "Le propriétaire de l'écran n'a pas encore activé le contrôle.",
   "cap.speakLang": "Je parle",
   "cap.listenTitle": "Écoute",
   "cap.speakTitle": "Parole et doublage",
   "cap.dubHint":
-    "Parler : choisissez votre langue puis une langue de doublage et lancez la transcription — la salle vous entend doublé. Écouter : choisissez une langue et les phrases des autres arrivent dans celle-ci, lues à voix haute pour vous seul en mode voix auto.",
+    "Doublage : choisissez une langue sous « Doubler ma voix en » puis appuyez sur le bouton Doublage (dans la barre ou ici) — la salle vous entend dans cette langue et vous voyez vos phrases traduites sous votre personnage. Écoute : choisissez « Traduire pour moi » ; la voix auto vous lit seul les phrases des autres.",
+  "cap.dubOn": "Doublage actif → {lang}",
 };
 
 const ar: Record<SKey, string> = {
@@ -409,7 +441,8 @@ const ar: Record<SKey, string> = {
   "cap.hint": "شغّل التعرف على الكلام وسيقرأ كل مشارك كلامك مترجمًا إلى لغته.",
   "cap.start": "تفعيل التعرف على كلامي",
   "cap.stop": "إيقاف التعرف على الكلام",
-  "cap.empty": "لا توجد ترجمات بعد. الجمل المنطوقة ستظهر هنا مترجمة.",
+  "cap.empty":
+    "لا أحد تكلم بعد. أول ما يتكلم أحدهم راح تظهر كلماته هنا مترجمة إلى لغتك.",
   "cap.unsupported": "متصفحك لا يدعم التعرف على الكلام. جرّب Chrome أو Edge.",
   "cap.denied": "تم حجب الميكروفون — اسمح بالوصول لتفعيل الترجمة.",
   "cap.you": "أنت",
@@ -454,11 +487,26 @@ const ar: Record<SKey, string> = {
   "room.ctlBy": "{name} يتحكم في شاشتك",
   "room.sharingBy": "{name} يشارك شاشته",
   "room.sharingYou": "أنت تشارك شاشتك",
+  "room.dub": "دبلجة",
+  "room.dubPick":
+    "اختر لغة الدبلجة من لوحة الترجمة تحت (الكلام والدبلجة)، ثم اضغط زر «دبلجة».",
+  "room.cam": "الكاميرا",
+  "room.camStop": "إيقاف الكاميرا",
+  "room.camFlip": "قلب الكاميرا",
+  "room.camYou": "أنت",
+  "room.camBack": "الكاميرا الخلفية",
+  "room.camDenied": "تم رفض الوصول للكاميرا أو أنها غير متاحة في هذا المتصفح.",
+  "room.camFlipFail": "ما قدرت أبدّل الكاميرا — يمكن جهازك فيه كاميرا وحدة.",
+  "room.ctlEnterTitle": "أدخل كود التحكم",
+  "room.ctlWatch": "{name} يسمح بالتحكم — اكتب الكود المكوّن من 6 أرقام اللي أعطاك إياه.",
+  "room.ctlHeldBy": "{name} يتحكم حاليًا — انتظر دورك.",
+  "room.ctlOff": "مالك الشاشة ما فعّل التحكم بعد.",
   "cap.speakLang": "أتكلم",
   "cap.listenTitle": "الاستماع",
   "cap.speakTitle": "الكلام والدبلجة",
   "cap.dubHint":
-    "للكلام: اختر لغتك ثم لغة الدبلجة وشغّل التعرف — تسمعك الغرفة بدبلجتها. للاستماع: اختر لغة وسيصلك كلام الآخرين بها، والصوت التلقائي يقرأه لك وحدك.",
+    "الدبلجة: اختر اللغة من «دبلجة صوتي إلى» ثم اضغط زر «دبلجة» (في الشريط أو هنا) — الغرفة تسمعك بهذه اللغة وأنت تشوف كلامك مترجم تحت شخصيتك. الاستماع: اختر «ترجم لي» والصوت التلقائي يقرأ لك كلام الآخرين وحدك.",
+  "cap.dubOn": "الدبلجة تعمل → {lang}",
 };
 
 const catalogs: Record<Locale, Record<SKey, string>> = { en, fr, ar };
