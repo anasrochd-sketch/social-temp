@@ -132,6 +132,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
   const [deafened, setDeafenedState] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remoteVideos, setRemoteVideos] = useState<Record<string, MediaStream>>({});
   const [ctl, setCtl] = useState<RoomVoiceCtl>(EMPTY_CTL);
 
@@ -643,6 +644,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
   const stopShare = useCallback(() => {
     const track = screenTrack.current;
     screenTrack.current = null;
+    setScreenStream(null);
     if (track) track.stop();
     peers.current.forEach((p) => {
       const sender = p.pc.getSenders().find((s) => s.track?.kind === "video");
@@ -677,6 +679,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       const track = screen.getVideoTracks()[0] ?? null;
       if (!track) return;
       screenTrack.current = track;
+      setScreenStream(screen);
       peers.current.forEach((p) => {
         try {
           p.pc.addTrack(track, screen);
@@ -689,6 +692,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
       setShareNotice(null);
       ctlBroadcast({ t: "share", on: true });
     } catch {
+      setScreenStream(null);
       setShareNotice("room.shareDenied");
     }
   }, [ctlBroadcast, sharing, stopShare]);
@@ -780,6 +784,7 @@ export function useVoiceMesh({ enabled, meUid, peerUids, sendSignal, onSignal }:
     sharing,
     toggleShare,
     shareNotice,
+    screenStream,
     remoteVideos,
     ctl,
     ctlActions,

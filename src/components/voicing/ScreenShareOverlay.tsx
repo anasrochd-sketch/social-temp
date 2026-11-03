@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 export function ScreenShareOverlay({
   members,
   remoteVideos,
+  myScreen,
   sharing,
   ctl,
   ctlActions,
@@ -26,6 +27,8 @@ export function ScreenShareOverlay({
   /** uid -> name, for badges. */
   members: Record<string, string>;
   remoteVideos: Record<string, MediaStream>;
+  /** My own screen while I share (local preview). */
+  myScreen: MediaStream | null;
   /** I am sharing right now. */
   sharing: boolean;
   ctl: RoomVoiceCtl;
@@ -38,7 +41,8 @@ export function ScreenShareOverlay({
 
   const sharerUids = Object.keys(remoteVideos);
   const first = sharerUids[0] ?? null;
-  const stream = first ? remoteVideos[first] : null;
+  /** Remote share if one exists, otherwise my own while I share. */
+  const stream = first ? remoteVideos[first] : sharing ? myScreen : null;
 
   useEffect(() => {
     const el = videoRef.current;
@@ -56,7 +60,8 @@ export function ScreenShareOverlay({
   if (!first && !sharing && !ctl.notice) return null;
 
   const controlling = first !== null && ctl.controlling === first;
-  const nameOf = (uid: string) => members[uid] ?? uid.slice(0, 8);
+  /** Null-safe: notices can render with no active sharer at all. */
+  const nameOf = (uid: string | null) => (uid ? members[uid] ?? uid.slice(0, 8) : "?");
 
   // Viewer-side capture: gestures on the video become control messages.
   const captureProps = controlling
@@ -100,7 +105,11 @@ export function ScreenShareOverlay({
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
             <MonitorUp className="h-4 w-4" aria-hidden="true" />
-            {sharing ? t("room.sharingYou") : t("room.sharingBy", { name: nameOf(first!) })}
+            {sharing
+              ? t("room.sharingYou")
+              : first
+                ? t("room.sharingBy", { name: nameOf(first) })
+                : t("room.share")}
           </h3>
           {sharing && ctl.allowed && (
             <Badge tone="soft">
@@ -179,7 +188,7 @@ export function ScreenShareOverlay({
           </form>
         )}
 
-        {first && (
+        {stream && (
           <div
             className={cn(
               "overflow-hidden rounded-xl border-2 bg-black",
@@ -201,7 +210,7 @@ export function ScreenShareOverlay({
         )}
         {controlling && (
           <p className="text-center text-[11px] text-cova-mute">
-            {t("room.ctlActive", { name: nameOf(first!) })}
+            {t("room.ctlActive", { name: nameOf(first) })}
           </p>
         )}
       </CardBody>

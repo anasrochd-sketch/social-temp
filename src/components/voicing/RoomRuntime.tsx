@@ -71,6 +71,8 @@ interface RoomRuntimeValue {
   sharing: boolean;
   toggleShare: () => void;
   shareNotice: string | null;
+  /** My own live screen stream (local preview while I share). */
+  screenStream: MediaStream | null;
   /** uid -> MediaStream of a room-mate's live shared screen. */
   remoteVideos: Record<string, MediaStream>;
   /** Remote-control session (verification code, who controls whom). */
@@ -139,6 +141,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
     sharing,
     toggleShare,
     shareNotice,
+    screenStream,
     remoteVideos,
     ctl,
     ctlActions,
@@ -216,6 +219,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       sharing,
       toggleShare,
       shareNotice,
+      screenStream,
       remoteVideos,
       ctl,
       ctlActions,
@@ -239,6 +243,7 @@ export function RoomRuntimeProvider({ children }: { children: ReactNode }) {
       sharing,
       toggleShare,
       shareNotice,
+      screenStream,
       remoteVideos,
       ctl,
       ctlActions,

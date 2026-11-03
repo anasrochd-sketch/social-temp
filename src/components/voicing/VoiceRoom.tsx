@@ -179,6 +179,7 @@ export function VoiceRoom({ code }: { code: string }) {
       <ScreenShareOverlay
         members={membersName}
         remoteVideos={runtime.remoteVideos}
+        myScreen={runtime.screenStream}
         sharing={runtime.sharing}
         ctl={runtime.ctl}
         ctlActions={runtime.ctlActions}
